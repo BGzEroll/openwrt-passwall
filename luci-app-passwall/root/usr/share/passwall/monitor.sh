@@ -26,7 +26,7 @@ sleep 58s
 while [ "$ENABLED" -eq 1 ]; do
 	[ -f "$LOCK_FILE" ] && {
 		sleep 6s
-		continue
+		#continue
 	}
 	touch $LOCK_FILE
 
