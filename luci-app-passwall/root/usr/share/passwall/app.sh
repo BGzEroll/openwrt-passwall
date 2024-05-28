@@ -206,7 +206,7 @@ check_port_exists() {
 check_depends() {
 	local tables=${1}
 	if [ "$tables" == "iptables" ]; then
-		for depends in "iptables-mod-tproxy" "iptables-mod-socket" "iptables-mod-iprange" "iptables-mod-conntrack-extra" "kmod-ipt-nat"; do
+		for depends in "iptables-mod-tproxy" "iptables-mod-iprange" "iptables-mod-conntrack-extra" "kmod-ipt-nat"; do
 			[ -z "$(opkg status ${depends} 2>/dev/null | grep 'Status' | awk -F ': ' '{print $2}' 2>/dev/null)" ] && echolog "$tables透明代理基础依赖 $depends 未安装..."
 		done
 	else
@@ -491,7 +491,7 @@ run_chinadns_ng() {
 	_LOG_FILE="/dev/null"
 
 	cat <<-EOF > ${_CONF_FILE}
-		verbose
+//		verbose
 		bind-addr 127.0.0.1
 		bind-port ${_listen_port}
 		china-dns ${_dns_local}
