@@ -491,7 +491,7 @@ run_chinadns_ng() {
 	_LOG_FILE="/dev/null"
 
 	cat <<-EOF > ${_CONF_FILE}
-//		verbose
+		#verbose
 		bind-addr 127.0.0.1
 		bind-port ${_listen_port}
 		china-dns ${_dns_local}
