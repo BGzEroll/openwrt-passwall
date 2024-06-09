@@ -1108,6 +1108,9 @@ add_firewall_rule() {
 		
 		$ip6t_m -I OUTPUT $(comment "mangle-OUTPUT-PSW") -o lo -j RETURN
 		insert_rule_before "$ip6t_m" "OUTPUT" "mwan3" "$(comment mangle-OUTPUT-PSW) -m mark --mark 1 -j RETURN"
+
+  		$ipt_m -A PSW -p udp --dport 53 -j RETURN
+		$ip6t_m -A PSW -p udp --dport 53 -j RETURN
 	}
 
 	#  加载ACLS
