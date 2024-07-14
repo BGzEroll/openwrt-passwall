@@ -26,6 +26,11 @@ config global
 	option loglevel 'error'
 	option trojan_loglevel '4'
 
+	option shunt_dnsv4 '192.168.114.1'
+    	option shunt_dnsv6 'fd64:1c6f:1660::1'
+	option shunt_dev 'br-lan'
+	option shunt_enable '0'
+
 config global_haproxy
 	option balancing_enable '0'
 
