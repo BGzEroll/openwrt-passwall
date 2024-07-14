@@ -97,6 +97,17 @@ s:tab("Main", translate("Main"))
 o = s:taboption("Main", Flag, "enabled", translate("Main switch"))
 o.rmempty = false
 
+o = s:taboption("Main", Flag, "shunt_enable", translate("启用流量转发"))
+o.rmempty = false
+o = s:taboption("Main", Value, "shunt_dnsv4", translate("转发流量至IPv4"))
+o.rmempty = false
+o.datatype = "ip4addr"
+o = s:taboption("Main", Value, "shunt_dnsv6", translate("转发流量至IPv6"))
+o.rmempty = false
+o.datatype = "ip6addr"
+o = s:taboption("Main", Value, "shunt_dev", translate("设备"))
+o.rmempty = false
+
 ---- TCP Node
 tcp_node = s:taboption("Main", ListValue, "tcp_node", "<a style='color: red'>" .. translate("TCP Node") .. "</a>")
 tcp_node:value("nil", translate("Close"))
