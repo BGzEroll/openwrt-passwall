@@ -746,7 +746,12 @@ dns_hijack() {
 }
 
 add_firewall_rule() {
-	echolog "开始加载防火墙规则..."
+	shunt_enable=$(uci -q get passwall.global.shunt_enable 2>/dev/null)
+	shunt_dnsv4=$(uci -q get passwall.global.shunt_dnsv4 2>/dev/null)
+	shunt_dnsv6=$(uci -q get passwall.global.shunt_dnsv6 2>/dev/null)
+	shunt_dev=$(uci -q get passwall.global.shunt_dev 2>/dev/null)
+ 	
+ 	echolog "开始加载防火墙规则..."
 	gen_nftset $NFTSET_VPSLIST ipv4_addr 0 0
 	gen_nftset $NFTSET_GFW ipv4_addr "2d" 0
 	gen_nftset $NFTSET_LANLIST ipv4_addr 0 "-1" $(gen_lanlist)
@@ -919,7 +924,12 @@ add_firewall_rule() {
 	unset WAN_IP
 
 	ip rule add fwmark 1 lookup 100
-	ip route add local 0.0.0.0/0 dev lo table 100
+ 	if [ "$shunt_enable" -eq 1 ];	then
+  		ip route del default table 100 2>/dev/null
+    		ip route add default via $shunt_dnsv4 dev $shunt_dev table 100
+      	else
+       		ip route add local 0.0.0.0/0 dev lo table 100
+	fi
 
 	#ipv6 tproxy mode and udp
 	nft "add chain inet fw4 PSW_MANGLE_V6"
@@ -945,7 +955,12 @@ add_firewall_rule() {
 		unset WAN6_IP
 
 		ip -6 rule add fwmark 1 table 100
-		ip -6 route add local ::/0 dev lo table 100
+  		if [ "$shunt_enable" -eq 1 ];	then
+    			ip -6 route del default table 100 2>/dev/null
+       			ip -6 route add default via $shunt_dnsv6 dev $shunt_dev table 100
+	  	else
+    			ip -6 route add local ::/0 dev lo table 100
+       		fi
 	}
 	
 	[ "$TCP_UDP" = "1" ] && [ "$UDP_NODE" = "nil" ] && UDP_NODE=$TCP_NODE
@@ -1192,9 +1207,11 @@ del_firewall_rule() {
 
 	ip rule del fwmark 1 lookup 100 2>/dev/null
 	ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null
+ 	ip route del default via $shunt_dnsv4 dev $shunt_dev table 100 2>/dev/null
 
 	ip -6 rule del fwmark 1 table 100 2>/dev/null
 	ip -6 route del local ::/0 dev lo table 100 2>/dev/null
+ 	ip -6 route del default via $shunt_dnsv6 dev $shunt_dev table 100 2>/dev/null
 
 	destroy_nftset $NFTSET_LANLIST
 	destroy_nftset $NFTSET_VPSLIST
