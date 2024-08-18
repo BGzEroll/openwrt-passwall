@@ -775,13 +775,6 @@ dns_hijack() {
 		nft "add rule $NFTABLE_NAME PSW_MANGLE ip protocol tcp tcp dport 53 counter return"
 		nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 meta l4proto udp udp dport 53 counter return"
 		nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 meta l4proto tcp tcp dport 53 counter return"
-		nft insert rule $NFTABLE_NAME dstnat position 0 tcp dport 53 counter redirect to :53 comment \"PSW_DNS_Hijack\" 2>/dev/null
-		nft insert rule $NFTABLE_NAME dstnat position 0 udp dport 53 counter redirect to :53 comment \"PSW_DNS_Hijack\" 2>/dev/null
-		nft insert rule $NFTABLE_NAME dstnat position 0 meta nfproto {ipv6} tcp dport 53 counter redirect to :53 comment \"PSW_DNS_Hijack\" 2>/dev/null
-		nft insert rule $NFTABLE_NAME dstnat position 0 meta nfproto {ipv6} udp dport 53 counter redirect to :53 comment \"PSW_DNS_Hijack\" 2>/dev/null
-		uci -q set dhcp.@dnsmasq[0].dns_redirect='0' 2>/dev/null
-		uci commit dhcp 2>/dev/null
-		echolog "  - 开启 DNS 重定向"
 	}
 }
 
