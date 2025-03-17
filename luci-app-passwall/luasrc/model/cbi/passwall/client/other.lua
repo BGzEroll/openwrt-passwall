@@ -143,6 +143,9 @@ if (os.execute("lsmod | grep -i REDIRECT >/dev/null") == 0 and os.execute("lsmod
 	end
 end
 
+o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发TCP"))
+o.default = 0
+
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 0
 
