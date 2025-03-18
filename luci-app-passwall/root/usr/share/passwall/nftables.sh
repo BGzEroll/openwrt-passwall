@@ -28,6 +28,9 @@ FORCE_INDEX=0
 FWI=$(uci -q get firewall.passwall.path 2>/dev/null)
 FAKE_IP="198.18.0.0/16"
 iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
+iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4 192.168.1.1)
+iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
+iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
 
 factor() {
 	if [ -z "$1" ] || [ -z "$2" ]; then
@@ -1003,8 +1006,15 @@ add_firewall_rule() {
 	fi
 	unset WAN_IP
 
-	ip rule add fwmark 1 lookup 100
-	ip route add local 0.0.0.0/0 dev lo table 100
+	if [ "$iproute_shunt" == "1" ]; then
+		ip rule add fwmark 1 lookup 100
+		ip route add local 0.0.0.0/0 dev lo table 100
+		ip rule add fwmark 2 lookup 114
+		ip route add 0.0.0.0/0 via $iproute_shunt_gw_v4 dev $iproute_shunt_interface table 114
+	else
+		ip rule add fwmark 1 lookup 100
+		ip route add local 0.0.0.0/0 dev lo table 100
+	fi
 
 	#ipv6 tproxy mode and udp
 	nft "add chain $NFTABLE_NAME PSW_MANGLE_V6"
@@ -1046,8 +1056,15 @@ add_firewall_rule() {
 		[ -n "${WAN6_IP}" ] && nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 ip6 daddr ${WAN6_IP} counter return comment \"WAN6_IP_RETURN\""
 		unset WAN6_IP
 
-		ip -6 rule add fwmark 1 table 100
-		ip -6 route add local ::/0 dev lo table 100
+		if [ "$iproute_shunt" == "1" ]; then
+			ip -6 rule add fwmark 1 lookup 100
+			ip -6 route add local ::/0 dev lo table 100
+			ip -6 rule add fwmark 2 lookup 114
+			ip -6 route add ::/0 via $iproute_shunt_gw_v6 dev $iproute_shunt_interface table 114
+		else
+			ip -6 rule add fwmark 1 table 100
+			ip -6 route add local ::/0 dev lo table 100
+		fi
 	}
 	
 	[ "$TCP_UDP" = "1" ] && [ "$UDP_NODE" = "nil" ] && UDP_NODE=$TCP_NODE
@@ -1274,6 +1291,9 @@ add_firewall_rule() {
 		}
 	}
 	echolog "防火墙规则加载完成！"
+ 	if [ "$iproute_shunt" == "1" ]; then
+		echolog "已开启TCP通过策略路由转发！"
+	fi
 }
 
 del_firewall_rule() {
