@@ -146,6 +146,17 @@ end
 o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发TCP"))
 o.default = 0
 
+o = s:option(Value, "iproute_shunt_gw_v4", translate("转发至IPv4网关"))
+o:depends("iproute_shunt", true)
+o.datatype = 'ip4addr'
+
+o = s:option(Value, "iproute_shunt_gw_v6", translate("转发至IPv6网关"))
+o:depends("iproute_shunt", true)
+o.datatype = 'ip6addr'
+
+o = s:option(Value, "iproute_shunt_interface", translate("通过接口"))
+o:depends("iproute_shunt", true)
+
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 0
 
