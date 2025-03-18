@@ -1317,6 +1317,11 @@ del_firewall_rule() {
 	ip -6 rule del fwmark 1 table 100 2>/dev/null
 	ip -6 route del local ::/0 dev lo table 100 2>/dev/null
 
+ 	ip route flush table 114 2>/dev/null
+	ip rule del fwmark 2 lookup 114 2>/dev/null
+	ip -6 route flush table 114 2>/dev/null
+	ip -6 rule del fwmark 2 table 114 2>/dev/null
+
 	destroy_nftset $NFTSET_LANLIST
 	destroy_nftset $NFTSET_VPSLIST
 	#destroy_nftset $NFTSET_SHUNTLIST
