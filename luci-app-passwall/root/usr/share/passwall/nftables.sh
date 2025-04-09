@@ -26,12 +26,12 @@ FORCE_INDEX=0
 . /lib/functions/network.sh
 
 FWI=$(uci -q get firewall.passwall.path 2>/dev/null)
-FAKE_IP="10.123.0.0/16"
-fakeip_shunt=$(config_t_get global_forwarding fakeip_shunt 0)
-fakeip_shunt_dns_port=$(config_t_get global_forwarding fakeip_shunt_dns_port 1919)
-fakeip_shunt_range=198.18.0.0/16
-fakeip_shunt_iif=$(config_t_get global_forwarding fakeip_shunt_iif br-lan)
-fakeip_shunt_gw=$(config_t_get global_forwarding fakeip_shunt_gw 192.168.1.1)
+FAKE_IP="198.18.0.0/16"
+
+iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
+iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4 192.168.1.1)
+iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
+iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
 
 factor() {
 	if [ -z "$1" ] || [ -z "$2" ]; then
@@ -106,18 +106,31 @@ RULE_LAST_INDEX() {
 REDIRECT() {
 	local s="counter redirect"
 	[ -n "$1" ] && {
-		local s="$s to :$1"
-		[ "$2" == "MARK" ] && s="counter meta mark set $1"
-		[ "$2" == "TPROXY" ] && {
-			s="counter meta mark 1 tproxy to :$1"
-		}
-		[ "$2" == "TPROXY4" ] && {
-			s="counter meta mark 1 tproxy ip to :$1"
-		}
-		[ "$2" == "TPROXY6" ] && {
-			s="counter meta mark 1 tproxy ip6 to :$1"
-		}
-
+		if [ "$iproute_shunt" == "1" ]; then
+			local s="$s to :$1"
+			[ "$2" == "MARK" ] && s="counter meta mark set $1"
+			[ "$2" == "TPROXY" ] && {
+				s="counter meta mark 1 return"
+			}
+			[ "$2" == "TPROXY4" ] && {
+				s="counter meta mark 1 return"
+			}
+			[ "$2" == "TPROXY6" ] && {
+				s="counter meta mark 1 return"
+			}
+		else
+			local s="$s to :$1"
+			[ "$2" == "MARK" ] && s="counter meta mark set $1"
+			[ "$2" == "TPROXY" ] && {
+				s="counter meta mark 1 tproxy to :$1"
+			}
+			[ "$2" == "TPROXY4" ] && {
+				s="counter meta mark 1 tproxy ip to :$1"
+			}
+			[ "$2" == "TPROXY6" ] && {
+				s="counter meta mark 1 tproxy ip6 to :$1"
+			}
+		fi
 	}
 	echo $s
 }
@@ -140,9 +153,6 @@ gen_nft_tables() {
 			}
 			chain mangle_prerouting {
 				type filter hook prerouting priority mangle - 1; policy accept;
-			}
-			chain passwall_dns_redir {
-				type nat hook prerouting priority -106; policy accept;
 			}
 			chain mangle_output {
 				type route hook output priority mangle - 1; policy accept;
@@ -317,12 +327,6 @@ load_acl() {
 				else
 					continue
 				fi
-
-				# 访问控制内的设备返回real ip
-				[ "$fakeip_shunt" == "1" ] && {
-					nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta nfproto { ipv4, ipv6 } ${_ipt_source} udp dport 53 counter redirect to :$fakeip_shunt_dns_port comment \"$remarks\""
-					nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta nfproto { ipv4, ipv6 } ${_ipt_source} tcp dport 53 counter redirect to :$fakeip_shunt_dns_port comment \"$remarks\""
-				}
 				
 				[ "$tcp_no_redir_ports" != "disable" ] && {
 					if [ "$tcp_no_redir_ports" != "1:65535" ]; then
@@ -892,9 +896,6 @@ add_firewall_rule() {
 	nft "flush chain $NFTABLE_NAME PSW_REDIRECT"
 	nft "add rule $NFTABLE_NAME dstnat jump PSW_REDIRECT"
 
-	nft "add chain $NFTABLE_NAME PSW_DNS_REDIRECT"
-	nft "flush chain $NFTABLE_NAME PSW_DNS_REDIRECT"
-
 	# for ipv4 ipv6 tproxy mark
 	nft "add chain $NFTABLE_NAME PSW_RULE"
 	nft "flush chain $NFTABLE_NAME PSW_RULE"
@@ -918,12 +919,6 @@ add_firewall_rule() {
 	[ "${USE_DIRECT_LIST}" = "1" ] && nft "add rule $NFTABLE_NAME PSW_OUTPUT_MANGLE ip daddr @$NFTSET_WHITELIST counter return"
 	nft "add rule $NFTABLE_NAME PSW_OUTPUT_MANGLE meta mark 0xff counter return"
 	[ "${USE_BLOCK_LIST}" = "1" ] && nft "add rule $NFTABLE_NAME PSW_OUTPUT_MANGLE ip daddr @$NFTSET_BLOCKLIST counter drop"
-
-	# dns jump chains
-	[ "$fakeip_shunt" == "1" ] && {
-		nft "add rule $NFTABLE_NAME passwall_dns_redir meta nfproto { ipv4, ipv6 } udp dport 53 counter jump PSW_DNS_REDIRECT"
-		nft "add rule $NFTABLE_NAME passwall_dns_redir meta nfproto { ipv4, ipv6 } tcp dport 53 counter jump PSW_DNS_REDIRECT"
-	}
 
 	# jump chains
 	nft "add rule $NFTABLE_NAME mangle_prerouting ip protocol udp counter jump PSW_MANGLE"
@@ -971,12 +966,11 @@ add_firewall_rule() {
 	unset WAN_IP
 
 	ip rule add fwmark 1 lookup 100
-	ip route add local 0.0.0.0/0 dev lo table 100
-
-	[ "$fakeip_shunt" == "1" ] && {
-		ip rule add from all to 198.18.0.0/16 lookup 114
-		ip route add 198.18.0.0/16 via $fakeip_shunt_gw dev $fakeip_shunt_iif table 114
-	}
+	if [ "$iproute_shunt" == "1" ]; then
+		ip route add 0.0.0.0/0 via $iproute_shunt_gw_v4 dev $iproute_shunt_interface table 100
+	else
+		ip route add local 0.0.0.0/0 dev lo table 100
+	fi
 
 	#ipv6 tproxy mode and udp
 	nft "add chain $NFTABLE_NAME PSW_MANGLE_V6"
@@ -1019,7 +1013,11 @@ add_firewall_rule() {
 		unset WAN6_IP
 
 		ip -6 rule add fwmark 1 table 100
-		ip -6 route add local ::/0 dev lo table 100
+		if [ "$iproute_shunt" == "1" ]; then
+			ip -6 route add ::/0 via $iproute_shunt_gw_v6 dev $iproute_shunt_interface table 100
+		else
+			ip -6 route add local ::/0 dev lo table 100
+		fi
 	}
 	
 	[ "$TCP_UDP" = "1" ] && [ "$UDP_NODE" = "nil" ] && UDP_NODE=$TCP_NODE
@@ -1249,7 +1247,7 @@ add_firewall_rule() {
 }
 
 del_firewall_rule() {
-	for nft in "dstnat" "srcnat" "nat_output" "mangle_prerouting" "passwall_dns_redir" "mangle_output"; do
+	for nft in "dstnat" "srcnat" "nat_output" "mangle_prerouting" "mangle_output"; do
         local handles=$(nft -a list chain $NFTABLE_NAME ${nft} 2>/dev/null | grep -E "PSW_" | awk -F '# handle ' '{print$2}')
 		for handle in $handles; do
 			nft delete rule $NFTABLE_NAME ${nft} handle ${handle} 2>/dev/null
@@ -1264,13 +1262,12 @@ del_firewall_rule() {
 	nft delete chain $NFTABLE_NAME handle $(nft -a list chains | grep -E "PSW_RULE" | awk -F '# handle ' '{print$2}') 2>/dev/null
 
 	ip rule del fwmark 1 lookup 100 2>/dev/null
-	ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null
-
-	ip rule del from all to 198.18.0.0/16 lookup 114 2>/dev/null
-	ip route flush table 114 2>/dev/null
+	# ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null
+	ip route flush table 100 2>/dev/null
 
 	ip -6 rule del fwmark 1 table 100 2>/dev/null
-	ip -6 route del local ::/0 dev lo table 100 2>/dev/null
+	# ip -6 route del local ::/0 dev lo table 100 2>/dev/null
+	ip -6 route flush table 100 2>/dev/null
 
 	destroy_nftset $NFTSET_LANLIST
 	destroy_nftset $NFTSET_VPSLIST
