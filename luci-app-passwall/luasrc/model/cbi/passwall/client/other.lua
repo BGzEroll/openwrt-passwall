@@ -148,14 +148,17 @@ o.default = 0
 
 o = s:option(Value, "iproute_shunt_gw_v4", translate("转发至IPv4网关"))
 o:depends("iproute_shunt", true)
+o.placeholder = '114.51.41.91'
 o.datatype = 'ip4addr'
 
 o = s:option(Value, "iproute_shunt_gw_v6", translate("转发至IPv6网关"))
 o:depends("iproute_shunt", true)
+o.placeholder = '0d00::0721:114:514'
 o.datatype = 'ip6addr'
 
 o = s:option(Value, "iproute_shunt_interface", translate("通过接口"))
 o:depends("iproute_shunt", true)
+o.placeholder = 'br-lan'
 
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 0
