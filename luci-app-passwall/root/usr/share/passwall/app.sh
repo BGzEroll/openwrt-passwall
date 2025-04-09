@@ -526,12 +526,10 @@ run_chinadns_ng() {
 	_LOG_FILE="/dev/null"
 
 	cat <<-EOF > ${_CONF_FILE}
-		#verbose
 		bind-addr 127.0.0.1
 		bind-port ${_listen_port}
 		china-dns ${_dns_local}
 		trust-dns ${_dns_trust}
-		filter-qtype 65
 	EOF
 
 	# This function may be called multiple times, so add a condition here to avoid repeated execution.
