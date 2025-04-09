@@ -143,29 +143,29 @@ if (os.execute("lsmod | grep -i REDIRECT >/dev/null") == 0 and os.execute("lsmod
 	end
 end
 
+o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发TCP"))
+o.default = 0
+
+o = s:option(Value, "iproute_shunt_gw_v4", translate("转发至IPv4网关"))
+o:depends("iproute_shunt", true)
+o.placeholder = '114.51.41.91'
+o.datatype = 'ip4addr'
+
+o = s:option(Value, "iproute_shunt_gw_v6", translate("转发至IPv6网关"))
+o:depends("iproute_shunt", true)
+o.placeholder = '0d00::0721:114:514'
+o.datatype = 'ip6addr'
+
+o = s:option(Value, "iproute_shunt_interface", translate("通过接口"))
+o:depends("iproute_shunt", true)
+o.placeholder = 'br-lan'
+
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 0
 
 o = s:option(Flag, "accept_icmpv6", translate("Hijacking ICMPv6 (IPv6 PING)"))
 o:depends("ipv6_tproxy", true)
 o.default = 0
-
-o = s:option(Flag, "fakeip_shunt", translate("启用基于fakeip的策略路由转发"))
-o.default = 0
-
-o = s:option(Value, "fakeip_shunt_dns_port", translate("访问控制转发dns到本地端口"))
-o:depends("fakeip_shunt", true)
-o.placeholder = '5353'
-o.datatype = 'range(1,65535)'
-
-o = s:option(Value, "fakeip_shunt_iif", translate("通过接口"))
-o:depends("fakeip_shunt", true)
-o.placeholder = 'br-lan'
-
-o = s:option(Value, "fakeip_shunt_gw", translate("路由至网关"))
-o:depends("fakeip_shunt", true)
-o.placeholder = '192.168.1.1'
-o.datatype = 'ip4addr'
 
 if has_xray then
 	s_xray = m:section(TypedSection, "global_xray", "Xray " .. translate("Settings"))
