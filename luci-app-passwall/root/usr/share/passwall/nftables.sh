@@ -28,10 +28,12 @@ FORCE_INDEX=0
 FWI=$(uci -q get firewall.passwall.path 2>/dev/null)
 FAKE_IP="198.18.0.0/16"
 
-iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
-iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4 192.168.1.1)
-iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
-iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
+# iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
+# iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4 192.168.1.1)
+# iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
+# iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
+# iproute_shunt_offloading_interface=$(config_t_get global_forwarding iproute_shunt_offloading_interface lan1,lan2,lan3,wan)
+# iproute_shunt_offloading_wan=$(config_t_get global_forwarding iproute_shunt_offloading_wan wan)
 
 factor() {
 	if [ -z "$1" ] || [ -z "$2" ]; then
@@ -104,6 +106,8 @@ RULE_LAST_INDEX() {
 }
 
 REDIRECT() {
+	iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
+	
 	local s="counter redirect"
 	[ -n "$1" ] && {
 		if [ "$iproute_shunt" == "1" ]; then
@@ -143,6 +147,8 @@ destroy_nftset() {
 }
 
 gen_nft_tables() {
+	iproute_shunt_offloading_interface=$(config_t_get global_forwarding iproute_shunt_offloading_interface lan1,lan2,lan3,wan)
+
 	if [ -z "$(nft list tables | grep 'inet passwall')" ]; then
 		local nft_table_file="$TMP_PATH/PSW_TABLE.nft"
 		# Set the correct priority to fit fw4
@@ -159,6 +165,15 @@ gen_nft_tables() {
 			}
 			chain nat_output {
 				type nat hook output priority -1; policy accept;
+			}
+			chain hwnat_pass {
+				type filter hook forward priority filter - 1; policy accept;
+			}
+			flowtable ft {
+				hook ingress priority filter - 1
+				devices = { $iproute_shunt_offloading_interface }
+				flags offload
+				counter
 			}
 		}
 		EOF
@@ -799,6 +814,12 @@ dns_hijack() {
 }
 
 add_firewall_rule() {
+	iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
+	iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4 192.168.1.1)
+	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
+	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
+	iproute_shunt_offloading_wan=$(config_t_get global_forwarding iproute_shunt_offloading_wan wan)
+	
 	echolog "开始加载防火墙规则..."
 	gen_nft_tables
 	gen_nftset $NFTSET_VPSLIST ipv4_addr 0 0
@@ -895,6 +916,13 @@ add_firewall_rule() {
 	nft "add chain $NFTABLE_NAME PSW_REDIRECT"
 	nft "flush chain $NFTABLE_NAME PSW_REDIRECT"
 	nft "add rule $NFTABLE_NAME dstnat jump PSW_REDIRECT"
+
+	nft "add chain $NFTABLE_NAME PSW_HWNAT_PASS"
+	nft "flush chain $NFTABLE_NAME PSW_HWNAT_PASS"
+	[ "$iproute_shunt" == "1" ] && {
+		nft "add rule $NFTABLE_NAME hwnat_pass meta l4proto { tcp, udp } jump PSW_HWNAT_PASS"
+		nft "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } oifname "$iproute_shunt_offloading_wan" flow add @ft comment \"硬件加速兼容策略路由\""
+	}
 
 	# for ipv4 ipv6 tproxy mark
 	nft "add chain $NFTABLE_NAME PSW_RULE"
@@ -1247,7 +1275,7 @@ add_firewall_rule() {
 }
 
 del_firewall_rule() {
-	for nft in "dstnat" "srcnat" "nat_output" "mangle_prerouting" "mangle_output"; do
+	for nft in "dstnat" "srcnat" "nat_output" "mangle_prerouting" "hwnat_pass" "mangle_output"; do
         local handles=$(nft -a list chain $NFTABLE_NAME ${nft} 2>/dev/null | grep -E "PSW_" | awk -F '# handle ' '{print$2}')
 		for handle in $handles; do
 			nft delete rule $NFTABLE_NAME ${nft} handle ${handle} 2>/dev/null
