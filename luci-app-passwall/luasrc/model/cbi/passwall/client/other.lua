@@ -143,8 +143,9 @@ if (os.execute("lsmod | grep -i REDIRECT >/dev/null") == 0 and os.execute("lsmod
 	end
 end
 
-o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发TCP"))
+o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发代理流量"))
 o.default = 0
+o.description = translate("开启后必须确保防火墙中的“软件及硬件流量分载”处于关闭状态，关闭后记得重新开启“软件及硬件流量分载”。")
 
 o = s:option(Value, "iproute_shunt_gw_v4", translate("转发至IPv4网关"))
 o:depends("iproute_shunt", true)
@@ -159,6 +160,17 @@ o.datatype = 'ip6addr'
 o = s:option(Value, "iproute_shunt_interface", translate("通过接口"))
 o:depends("iproute_shunt", true)
 o.placeholder = 'br-lan'
+o.description = translate("注意！开启策略路由转发后lan口之间的数据转发将关闭硬件加速，请选择其中一个lan口接交换机使用！")
+
+o = s:option(Value, "iproute_shunt_offloading_wan", translate("WAN口名称"))
+o:depends("iproute_shunt", true)
+o.placeholder = 'wan'
+
+o = s:option(Value, "iproute_shunt_offloading_interface", translate("使用硬件加速的接口"))
+o.default = 'lan1,lan2,lan3,wan'
+o.rmempty = false
+o.placeholder = 'lan1,lan2,lan3,wan'
+o.description = translate("必须填写物理接口名称，且更改内容后必须点击一次“清空NFSET”按钮。")
 
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 0
