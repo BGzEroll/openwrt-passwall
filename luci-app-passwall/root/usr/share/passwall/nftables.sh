@@ -33,7 +33,6 @@ FAKE_IP="198.18.0.0/16"
 # iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
 # iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
 # iproute_shunt_offloading_interface=$(config_t_get global_forwarding iproute_shunt_offloading_interface lan1,lan2,lan3,wan)
-# iproute_shunt_offloading_wan=$(config_t_get global_forwarding iproute_shunt_offloading_wan wan)
 
 factor() {
 	if [ -z "$1" ] || [ -z "$2" ]; then
@@ -818,7 +817,7 @@ add_firewall_rule() {
 	iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4 192.168.1.1)
 	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
 	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
-	iproute_shunt_offloading_wan=$(config_t_get global_forwarding iproute_shunt_offloading_wan wan)
+	iproute_shunt_offloading_interface=$(config_t_get global_forwarding iproute_shunt_offloading_interface lan1,lan2,lan3,wan)
 	
 	echolog "开始加载防火墙规则..."
 	gen_nft_tables
@@ -921,7 +920,7 @@ add_firewall_rule() {
 	nft "flush chain $NFTABLE_NAME PSW_HWNAT_PASS"
 	[ "$iproute_shunt" == "1" ] && {
 		nft "add rule $NFTABLE_NAME hwnat_pass meta l4proto { tcp, udp } jump PSW_HWNAT_PASS"
-		nft "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } oifname "$iproute_shunt_offloading_wan" flow add @ft comment \"硬件加速兼容策略路由\""
+		nft "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } mark != 1 oifname {$iproute_shunt_offloading_interface} flow add @ft comment \"硬件加速兼容策略路由\""
 	}
 
 	# for ipv4 ipv6 tproxy mark
