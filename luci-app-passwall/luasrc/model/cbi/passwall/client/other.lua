@@ -160,11 +160,6 @@ o.datatype = 'ip6addr'
 o = s:option(Value, "iproute_shunt_interface", translate("通过接口"))
 o:depends("iproute_shunt", true)
 o.placeholder = 'br-lan'
-o.description = translate("注意！开启策略路由转发后lan口之间的数据转发将关闭硬件加速，请选择其中一个lan口接交换机使用！")
-
-o = s:option(Value, "iproute_shunt_offloading_wan", translate("WAN口名称"))
-o:depends("iproute_shunt", true)
-o.placeholder = 'wan'
 
 o = s:option(Value, "iproute_shunt_offloading_interface", translate("使用硬件加速的接口"))
 o.default = 'lan1,lan2,lan3,wan'
