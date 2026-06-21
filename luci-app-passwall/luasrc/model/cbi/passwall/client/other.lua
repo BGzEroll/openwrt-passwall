@@ -165,7 +165,7 @@ o = s:option(Value, "iproute_shunt_offloading_interface", translate("使用硬�
 o.default = 'lan1,lan2,lan3,wan'
 o.rmempty = false
 o.placeholder = 'lan1,lan2,lan3,wan'
-o.description = translate("必须填写物理接口名称，且更改内容后必须点击一次“清空NFSET”按钮。")
+o.description = translate("必须填写物理接口名称。")
 
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 0
