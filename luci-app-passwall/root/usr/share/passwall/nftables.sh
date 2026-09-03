@@ -318,8 +318,16 @@ setup_global_policy() {
 
 protocol_available() {
 	case "$1" in
-		tcp) [ "$TCP_NODE" != "nil" ] ;;
-		udp) [ "$UDP_NODE" != "nil" ] || [ "$TCP_UDP" = "1" ] ;;
+		tcp)
+			[ "$TCP_NODE" != "nil" ] && [ "$(config_get_type "$TCP_NODE" nil)" != "nil" ]
+			;;
+		udp)
+			if [ "$TCP_UDP" = "1" ]; then
+				[ "$TCP_NODE" != "nil" ] && [ "$(config_get_type "$TCP_NODE" nil)" != "nil" ]
+			else
+				[ "$UDP_NODE" != "nil" ] && [ "$(config_get_type "$UDP_NODE" nil)" != "nil" ]
+			fi
+			;;
 	esac
 }
 

@@ -2,6 +2,7 @@ local api = require "luci.passwall.api"
 local appname = "passwall"
 local uci = api.uci
 local sys = api.sys
+local datatypes = api.datatypes
 
 local function port_validate(self, value)
 	return value:gsub("-", ":")

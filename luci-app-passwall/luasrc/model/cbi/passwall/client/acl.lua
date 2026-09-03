@@ -37,7 +37,7 @@ o.rmempty = true
 
 local mac_t = {}
 sys.net.mac_hints(function(e, t)
-	mac_t[e] = {
+	mac_t[e:upper()] = {
 		ip = t,
 		mac = e
 	}
@@ -50,8 +50,9 @@ o.cfgvalue = function(t, n)
 	local v = Value.cfgvalue(t, n) or ''
 	string.gsub(v, '[^' .. " " .. ']+', function(w)
 		local a = w
-		if mac_t[w] then
-			a = a .. ' (' .. mac_t[w].ip .. ')'
+		local hint = mac_t[w:upper()]
+		if hint then
+			a = a .. ' (' .. hint.ip .. ')'
 		end
 		if #e > 0 then
 			e = e .. "<br />"
