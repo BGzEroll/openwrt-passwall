@@ -28,8 +28,7 @@ end
 
 m = Map(appname)
 
-s = m:section(NamedSection, arg[1], translate("ACLs"),
-	translate("An ACL identifies directly connected devices by MAC address and only overrides their TCP/UDP port policy. Destination lists, nodes and DNS always use Global Config."))
+s = m:section(NamedSection, arg[1], translate("ACLs"))
 s.addremove = false
 s.dynamic = false
 

@@ -4,7 +4,7 @@ local sys = api.sys
 
 m = Map(appname)
 
-s = m:section(TypedSection, "global", translate("ACLs"), "<font color='red'>" .. translate("ACLs identify directly connected devices by MAC address and override ports only. Nodes, DNS and destination policy are global.") .. "</font>")
+s = m:section(TypedSection, "global", translate("ACLs"))
 s.anonymous = true
 
 o = s:option(Flag, "acl_enable", translate("Main switch"))

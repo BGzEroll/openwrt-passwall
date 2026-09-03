@@ -34,33 +34,11 @@ for k, v in pairs(nodes_table) do
 	end
 end
 
-local socks_list = {}
-
 local tcp_socks_server = "127.0.0.1" .. ":" .. (uci:get(appname, "@global[0]", "tcp_node_socks_port") or "1070")
-local socks_table = {}
-socks_table[#socks_table + 1] = {
+local socks_table = {{
 	id = tcp_socks_server,
 	remark = tcp_socks_server .. " - " .. translate("TCP Node")
-}
-uci:foreach(appname, "socks", function(s)
-	if s.enabled == "1" and s.node then
-		local id, remark
-		for k, n in pairs(nodes_table) do
-			if (s.node == n.id) then
-				remark = n["remark"]; break
-			end
-		end
-		id = "127.0.0.1" .. ":" .. s.port
-		socks_table[#socks_table + 1] = {
-			id = id,
-			remark = id .. " - " .. (remark or translate("Misconfigured"))
-		}
-		socks_list[#socks_list + 1] = {
-			id = "Socks_" .. s[".name"],
-			remark = translate("Socks Config") .. " " .. string.format("[%s %s]", s.port, translate("Port"))
-		}
-	end
-end)
+}}
 
 local doh_validate = function(self, value, t)
 	if value ~= "" then
@@ -200,9 +178,6 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 
 			o = s:taboption("Main", ListValue, vid .. "-main_node", string.format('<a style="color:red">%s</a>', translate("Preproxy Node")), translate("Set the node to be used as a pre-proxy. Each rule (including <code>Default</code>) has a separate switch that controls whether this rule uses the pre-proxy or not."))
 			o:depends(vid .. "-preproxy_enabled", "1")
-			for k1, v1 in pairs(socks_list) do
-				o:value(v1.id, v1.remark)
-			end
 			for k1, v1 in pairs(balancing_list) do
 				o:value(v1.id, v1.remark)
 			end
@@ -240,9 +215,6 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 					pt:value("nil", translate("Close"))
 					pt:value("main", translate("Preproxy Node"))
 					pt.default = "nil"
-					for k1, v1 in pairs(socks_list) do
-						o:value(v1.id, v1.remark)
-					end
 					for k1, v1 in pairs(balancing_list) do
 						o:value(v1.id, v1.remark)
 					end
@@ -263,9 +235,6 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 			o:depends("tcp_node", v.id)
 			o:value("_direct", translate("Direct Connection"))
 			o:value("_blackhole", translate("Blackhole"))
-			for k1, v1 in pairs(socks_list) do
-				o:value(v1.id, v1.remark)
-			end
 			for k1, v1 in pairs(balancing_list) do
 				o:value(v1.id, v1.remark)
 			end
@@ -559,10 +528,6 @@ o = s:taboption("Proxy", Flag, "localhost_proxy", translate("Localhost Proxy"), 
 o.default = "1"
 o.rmempty = false
 
-o = s:taboption("Proxy", Flag, "client_proxy", translate("Client Proxy"), translate("When selected, devices in LAN can transparent proxy. Otherwise, it will not be proxy. But you can still use access control to allow the designated device to proxy."))
-o.default = "1"
-o.rmempty = false
-
 o = s:taboption("Proxy", DummyValue, "_proxy_tips", " ")
 o.rawhtml = true
 o.cfgvalue = function(t, n)
@@ -605,69 +570,9 @@ o:depends("advanced_log_feature", "1")
 o = s:taboption("log", Value, "log_event_cmd", translate("Shell Command"), translate("Shell command to execute, replace log content with %s."))
 o:depends("advanced_log_feature", "1")
 
-s:tab("faq", "FAQ")
-
-o = s:taboption("faq", DummyValue, "")
-o.template = appname .. "/global/faq"
-
--- [[ Socks Server ]]--
-o = s:taboption("Main", Flag, "socks_enabled", "Socks " .. translate("Main switch"))
-o.rmempty = false
-
-s = m:section(TypedSection, "socks", translate("Socks Config"))
-s.template = "cbi/tblsection"
-s.anonymous = true
-s.addremove = true
-s.extedit = api.url("socks_config", "%s")
-function s.create(e, t)
-	local uuid = api.gen_short_uuid()
-	t = uuid
-	TypedSection.create(e, t)
-	luci.http.redirect(e.extedit:format(t))
-end
-
-o = s:option(DummyValue, "status", translate("Status"))
-o.rawhtml = true
-o.cfgvalue = function(t, n)
-	return string.format('<div class="_status" socks_id="%s"></div>', n)
-end
-
----- Enable
-o = s:option(Flag, "enabled", translate("Enable"))
-o.default = 1
-o.rmempty = false
-
-socks_node = s:option(ListValue, "node", translate("Socks Node"))
-
-local n = 1
-uci:foreach(appname, "socks", function(s)
-	if s[".name"] == section then
-		return false
-	end
-	n = n + 1
-end)
-
-o = s:option(Value, "port", "Socks " .. translate("Listen Port"))
-o.default = n + 1080
-o.datatype = "port"
-o.rmempty = false
-
-if has_singbox or has_xray then
-	o = s:option(Value, "http_port", "HTTP " .. translate("Listen Port") .. " " .. translate("0 is not use"))
-	o.default = 0
-	o.datatype = "port"
-end
-
 for k, v in pairs(nodes_table) do
 	tcp_node:value(v.id, v["remark"])
 	udp_node:value(v.id, v["remark"])
-	if v.type == "Socks" then
-		if has_singbox or has_xray then
-			socks_node:value(v.id, v["remark"])
-		end
-	else
-		socks_node:value(v.id, v["remark"])
-	end
 end
 
 m:append(Template(appname .. "/global/footer"))

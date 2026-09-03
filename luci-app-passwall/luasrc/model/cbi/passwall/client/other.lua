@@ -105,17 +105,8 @@ o:value("1:65535", translate("All"))
 o:value("53", "DNS")
 o.validate = port_validate
 
-o = s:option(DummyValue, "_firewall_backend", translate("Firewall tools"))
-o.default = "nftables / TPROXY"
-o.cfgvalue = function()
-	return "nftables / TPROXY"
-end
-
 ---- IPv6 TProxy
-o = s:option(Flag, "ipv6_tproxy", translate("IPv6 TProxy"),
-			"<font color='red'>" .. translate(
-				"Make sure that your global node and network support IPv6.") ..
-				"</font>")
+o = s:option(Flag, "ipv6_tproxy", translate("IPv6 TProxy"))
 o.default = 0
 o.rmempty = false
 

@@ -919,25 +919,7 @@ function gen_config(var)
 			local preproxy_node_id = node["main_node"]
 			local preproxy_node = preproxy_enabled and preproxy_node_id and uci:get_all(appname, preproxy_node_id) or nil
 
-			if preproxy_node_id and preproxy_node_id:find("Socks_") then
-				local socks_id = preproxy_node_id:sub(1 + #"Socks_")
-				local socks_node = uci:get_all(appname, socks_id) or nil
-				if socks_node then
-					local _node = {
-						type = "sing-box",
-						protocol = "socks",
-						address = "127.0.0.1",
-						port = socks_node.port,
-						uot = "1",
-					}
-					local preproxy_outbound = gen_outbound(flag, _node, preproxy_tag)
-					if preproxy_outbound then
-						table.insert(outbounds, preproxy_outbound)
-					else
-						preproxy_enabled = false
-					end
-				end
-			elseif preproxy_node and api.is_normal_node(preproxy_node) then
+			if preproxy_node and api.is_normal_node(preproxy_node) then
 				local preproxy_outbound = gen_outbound(flag, preproxy_node, preproxy_tag)
 				if preproxy_outbound then
 					set_outbound_detour(preproxy_node, preproxy_outbound, outbounds, preproxy_tag)
@@ -957,23 +939,6 @@ function gen_config(var)
 					rule_outboundTag = "block"
 				elseif _node_id == "_default" and rule_name ~= "default" then
 					rule_outboundTag = "default"
-				elseif _node_id:find("Socks_") then
-					local socks_id = _node_id:sub(1 + #"Socks_")
-					local socks_node = uci:get_all(appname, socks_id) or nil
-					if socks_node then
-						local _node = {
-							type = "sing-box",
-							protocol = "socks",
-							address = "127.0.0.1",
-							port = socks_node.port,
-							uot = "1",
-						}
-						local _outbound = gen_outbound(flag, _node, rule_name)
-						if _outbound then
-							table.insert(outbounds, _outbound)
-							rule_outboundTag = rule_name
-						end
-					end
 				elseif _node_id ~= "nil" then
 					local _node = uci:get_all(appname, _node_id)
 					if not _node then return nil, nil end

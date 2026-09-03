@@ -17,15 +17,9 @@ uci -q batch <<-EOF >/dev/null
 	commit firewall
 	[ -e "/etc/config/ucitrack" ] && {
 	delete ucitrack.@passwall_server[-1]
-	add ucitrack passwall_server
-	set ucitrack.@passwall_server[-1].init=passwall_server
 	commit ucitrack
 	}
 	delete firewall.passwall_server
-	set firewall.passwall_server=include
-	set firewall.passwall_server.type=script
-	set firewall.passwall_server.path=/var/etc/passwall_server.include
-	set firewall.passwall_server.reload=1
 	commit firewall
 	set uhttpd.main.max_requests=50
 	commit uhttpd
@@ -41,6 +35,7 @@ chmod +x /usr/share/passwall/*.sh
 [ "$(uci -q get passwall.@global_xray[0].sniffing)" == "1" ] && [ "$(uci -q get passwall.@global_xray[0].route_only)" != "1" ] && uci -q set passwall.@global_xray[0].sniffing_override_dest=1
 uci -q delete passwall.@global_xray[0].sniffing
 uci -q delete passwall.@global_xray[0].route_only
+uci -q delete passwall.@global[0].client_proxy
 uci -q commit passwall
 
 rm -f /tmp/luci-indexcache

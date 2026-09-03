@@ -69,7 +69,6 @@ TCP 不再进入 NAT REDIRECT 透明代理链。NAT `redirect` 动作仍由全�
 
 - `root/usr/share/passwall/nftables.sh`：重写 nftables 集合、链、ACL、目的策略、Proxy Action、DNS、Ping、本机流量、路由和 flowtable。
 - `root/usr/share/passwall/app.sh`：删除 per-ACL 代理/DNS实例，强制代理核心使用 TPROXY，固定 nftables 启停路径。
-- `root/usr/share/passwall/iptables.sh`：客户端入口缩减为不支持提示；仅保留独立 `passwall_server` 仍调用的 iptables 二进制查询函数。
 - `root/usr/share/passwall/0_default_config`：新安装默认 nftables + TPROXY。
 
 ### LuCI 与配置关联
@@ -356,7 +355,6 @@ remote_dns / remote_dns_doh 等 ACL DNS 字段
 
 ```sh
 sh -n luci-app-passwall/root/usr/share/passwall/app.sh
-sh -n luci-app-passwall/root/usr/share/passwall/iptables.sh
 sh -n luci-app-passwall/root/usr/share/passwall/nftables.sh
 bash -n tests/test_nftables_architecture.sh
 tests/test_nftables_architecture.sh

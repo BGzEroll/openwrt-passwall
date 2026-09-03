@@ -491,10 +491,8 @@ setup_client_chains() {
 	create_chain PSW_DEFAULT_PORTS
 	add_port_policy PSW_DEFAULT_PORTS "$TCP_NO_REDIR_PORTS" "$UDP_NO_REDIR_PORTS" \
 		"$TCP_PROXY_DROP_PORTS" "$UDP_PROXY_DROP_PORTS" "$TCP_REDIR_PORTS" "$UDP_REDIR_PORTS"
-	[ "$CLIENT_PROXY" = "1" ] && {
-		nft "add rule $NFTABLE_NAME PSW_MANGLE counter goto PSW_DEFAULT_PORTS"
-		nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 counter goto PSW_DEFAULT_PORTS"
-	}
+	nft "add rule $NFTABLE_NAME PSW_MANGLE counter goto PSW_DEFAULT_PORTS"
+	nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 counter goto PSW_DEFAULT_PORTS"
 	nft "add rule $NFTABLE_NAME PSW_MANGLE counter return"
 	nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 counter return"
 
@@ -623,16 +621,7 @@ setup_node_bypass() {
 		nft "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE oifname \"$iface\" counter return comment \"node interface bypass\""
 	done
 
-	local id enabled node port stream
-	if [ "$SOCKS_ENABLED" = "1" ]; then
-		for id in $(uci show "$CONFIG" | grep '=socks' | cut -d. -f2 | cut -d= -f1); do
-			enabled=$(config_n_get "$id" enabled 0)
-			node=$(config_n_get "$id" node nil)
-			[ "$enabled" = "1" ] && [ "$node" != "nil" ] || continue
-			filter_node "$node" TCP
-			filter_node "$node" UDP
-		done
-	fi
+	local node port stream
 	if [ "$ENABLED_DEFAULT_ACL" = "1" ]; then
 		for stream in TCP UDP; do
 			[ "$stream" = "TCP" ] && node="$TCP_NODE" && port="$TCP_REDIR_PORT"

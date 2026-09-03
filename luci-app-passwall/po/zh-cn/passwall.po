@@ -1024,12 +1024,6 @@ msgstr "添加"
 msgid "ACLs"
 msgstr "访问控制"
 
-msgid "ACLs identify directly connected devices by MAC address and override ports only. Nodes, DNS and destination policy are global."
-msgstr "访问控制仅按 MAC 地址识别直连设备，并且只覆盖端口策略。节点、DNS 和目标地址策略均使用全局配置。"
-
-msgid "An ACL identifies directly connected devices by MAC address and only overrides their TCP/UDP port policy. Destination lists, nodes and DNS always use Global Config."
-msgstr "一个访问控制规则通过 MAC 地址识别直连设备，并且只覆盖其 TCP/UDP 端口策略。目标列表、节点和 DNS 始终使用全局配置。"
-
 msgid "Enable"
 msgstr "启用"
 
@@ -1353,9 +1347,6 @@ msgstr "节点数量"
 
 msgid "You can only set up a maximum of %s nodes for the time being, Used for access control."
 msgstr "目前最多只能设置 %s 个节点，用于给访问控制使用。"
-
-msgid "Firewall tools"
-msgstr "防火墙工具"
 
 msgid "IPv6 TProxy"
 msgstr "IPv6 透明代理(TProxy)"

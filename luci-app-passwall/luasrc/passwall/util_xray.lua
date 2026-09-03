@@ -419,7 +419,6 @@ function gen_config_server(node)
 
 	local config = {
 		log = {
-			-- error = "/tmp/etc/passwall_server/log/" .. user[".name"] .. ".log",
 			loglevel = ("1" == node.log) and node.loglevel or "none"
 		},
 		-- 传入连接
@@ -792,26 +791,6 @@ function gen_config(var)
 					return "blackhole", nil
 				elseif _node_id == "_default" then
 					return "default", nil
-				elseif _node_id:find("Socks_") then
-					local socks_id = _node_id:sub(1 + #"Socks_")
-					local socks_node = uci:get_all(appname, socks_id) or nil
-					local socks_tag
-					if socks_node then
-						local _node = {
-							type = "Xray",
-							protocol = "socks",
-							address = "127.0.0.1",
-							port = socks_node.port,
-							transport = "tcp",
-							stream_security = "none"
-						}
-						local outbound = gen_outbound(flag, _node, rule_name)
-						if outbound then
-							table.insert(outbounds, outbound)
-							socks_tag = outbound.tag
-						end
-					end
-					return socks_tag, nil
 				end
 
 				local _node = uci:get_all(appname, _node_id)

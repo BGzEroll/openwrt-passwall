@@ -82,16 +82,6 @@ for k, e in ipairs(api.get_valid_nodes()) do
 	end
 end
 
-local socks_list = {}
-uci:foreach(appname, "socks", function(s)
-	if s.enabled == "1" and s.node then
-		socks_list[#socks_list + 1] = {
-			id = "Socks_" .. s[".name"],
-			remark = translate("Socks Config") .. " " .. string.format("[%s %s]", s.port, translate("Port"))
-		}
-	end
-end)
-
 -- [[ 分流模块 ]]
 if #nodes_table > 0 then
 	o = s:option(Flag, option_name("preproxy_enabled"), translate("Preproxy"))
@@ -99,9 +89,6 @@ if #nodes_table > 0 then
 
 	o = s:option(ListValue, option_name("main_node"), string.format('<a style="color:red">%s</a>', translate("Preproxy Node")), translate("Set the node to be used as a pre-proxy. Each rule (including <code>Default</code>) has a separate switch that controls whether this rule uses the pre-proxy or not."))
 	o:depends({ [option_name("protocol")] = "_shunt", [option_name("preproxy_enabled")] = true })
-	for k, v in pairs(socks_list) do
-		o:value(v.id, v.remark)
-	end
 	for k, v in pairs(iface_table) do
 		o:value(v.id, v.remark)
 	end
@@ -120,9 +107,6 @@ uci:foreach(appname, "shunt_rules", function(e)
 		o:depends({ [option_name("protocol")] = "_shunt" })
 
 		if #nodes_table > 0 then
-			for k, v in pairs(socks_list) do
-				o:value(v.id, v.remark)
-			end
 			for k, v in pairs(iface_table) do
 				o:value(v.id, v.remark)
 			end
@@ -152,9 +136,6 @@ o:value("_direct", translate("Direct Connection"))
 o:value("_blackhole", translate("Blackhole"))
 
 if #nodes_table > 0 then
-	for k, v in pairs(socks_list) do
-		o:value(v.id, v.remark)
-	end
 	for k, v in pairs(iface_table) do
 		o:value(v.id, v.remark)
 	end

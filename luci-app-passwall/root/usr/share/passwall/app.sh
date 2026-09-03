@@ -1155,65 +1155,6 @@ start_redir() {
 	fi
 }
 
-start_socks() {
-	[ "$SOCKS_ENABLED" = "1" ] && {
-		local ids=$(uci show $CONFIG | grep "=socks" | awk -F '.' '{print $2}' | awk -F '=' '{print $1}')
-		[ -n "$ids" ] && {
-			echolog "分析 Socks 服务的节点配置..."
-			for id in $ids; do
-				local enabled=$(config_n_get $id enabled 0)
-				[ "$enabled" == "0" ] && continue
-				local node=$(config_n_get $id node nil)
-				[ "$node" == "nil" ] && continue
-				local bind_local=$(config_n_get $id bind_local 0)
-				local bind="0.0.0.0"
-				[ "$bind_local" = "1" ] && bind="127.0.0.1"
-				local port=$(config_n_get $id port)
-				local config_file="SOCKS_${id}.json"
-				local log_file="SOCKS_${id}.log"
-				local log=$(config_n_get $id log 1)
-				[ "$log" == "0" ] && log_file=""
-				local http_port=$(config_n_get $id http_port 0)
-				local http_config_file="HTTP2SOCKS_${id}.json"
-				run_socks flag=$id node=$node bind=$bind socks_port=$port config_file=$config_file http_port=$http_port http_config_file=$http_config_file log_file=$log_file
-				echo $node > $TMP_ID_PATH/socks_${id}
-
-				#自动切换逻辑
-				local enable_autoswitch=$(config_n_get $id enable_autoswitch 0)
-				[ "$enable_autoswitch" = "1" ] && $APP_PATH/socks_auto_switch.sh ${id} > /dev/null 2>&1 &
-			done
-		}
-	}
-}
-
-socks_node_switch() {
-	local flag new_node
-	eval_set_val $@
-	[ -n "$flag" ] && [ -n "$new_node" ] && {
-		pgrep -af "$TMP_BIN_PATH" | awk -v P1="${flag}" 'BEGIN{IGNORECASE=1}$0~P1 && !/acl\/|acl_/{print $1}' | xargs kill -9 >/dev/null 2>&1
-		rm -rf $TMP_PATH/SOCKS_${flag}*
-		rm -rf $TMP_PATH/HTTP2SOCKS_${flag}*
-
-		for filename in $(ls ${TMP_SCRIPT_FUNC_PATH}); do
-			cmd=$(cat ${TMP_SCRIPT_FUNC_PATH}/${filename})
-			[ -n "$(echo $cmd | grep "${flag}")" ] && rm -f ${TMP_SCRIPT_FUNC_PATH}/${filename}
-		done
-		local bind_local=$(config_n_get $flag bind_local 0)
-		local bind="0.0.0.0"
-		[ "$bind_local" = "1" ] && bind="127.0.0.1"
-		local port=$(config_n_get $flag port)
-		local config_file="SOCKS_${flag}.json"
-		local log_file="SOCKS_${flag}.log"
-		local log=$(config_n_get $flag log 1)
-		[ "$log" == "0" ] && log_file=""
-		local http_port=$(config_n_get $flag http_port 0)
-		local http_config_file="HTTP2SOCKS_${flag}.json"
-		LOG_FILE="/dev/null"
-		run_socks flag=$flag node=$new_node bind=$bind socks_port=$port config_file=$config_file http_port=$http_port http_config_file=$http_config_file log_file=$log_file
-		echo $new_node > $TMP_ID_PATH/socks_${flag}
-	}
-}
-
 clean_log() {
 	logsnum=$(cat $LOG_FILE 2>/dev/null | wc -l)
 	[ "$logsnum" -gt 1000 ] && {
@@ -1579,7 +1520,6 @@ kill_all() {
 start() {
 	ulimit -n 65535
 	start_haproxy
-	start_socks
 	nftflag=1
 	if [ -z "$(command -v fw4)" ] || [ -z "$(command -v nft)" ]; then
 		echolog "当前专用版本只支持 firewall4 + nftables，透明代理未启动。"
@@ -1620,13 +1560,11 @@ stop() {
 	[ -s "$TMP_PATH/bridge_nf_ipt" ] && sysctl -w net.bridge.bridge-nf-call-iptables=$(cat $TMP_PATH/bridge_nf_ipt) >/dev/null 2>&1
 	[ -s "$TMP_PATH/bridge_nf_ip6t" ] && sysctl -w net.bridge.bridge-nf-call-ip6tables=$(cat $TMP_PATH/bridge_nf_ip6t) >/dev/null 2>&1
 	rm -rf ${TMP_PATH}
-	rm -rf /tmp/lock/${CONFIG}_socks_auto_switch*
 	echolog "清空并关闭相关程序和缓存完成。"
 	exit 0
 }
 
 ENABLED=$(config_t_get global enabled 0)
-SOCKS_ENABLED=$(config_t_get global socks_enabled 0)
 TCP_REDIR_PORT=1041
 TCP_NODE=$(config_t_get global tcp_node nil)
 UDP_REDIR_PORT=1051
@@ -1661,7 +1599,6 @@ UDP_PROXY_MODE=$(config_t_get global udp_proxy_mode proxy)
 [ "${TCP_PROXY_MODE}" != "disable" ] && TCP_PROXY_MODE="proxy"
 [ "${UDP_PROXY_MODE}" != "disable" ] && UDP_PROXY_MODE="proxy"
 LOCALHOST_PROXY=$(config_t_get global localhost_proxy 1)
-CLIENT_PROXY=$(config_t_get global client_proxy 1)
 DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
 [ -z "$(first_type $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
 DNS_MODE=$(config_t_get global dns_mode tcp)
@@ -1706,9 +1643,6 @@ run_socks)
 	;;
 run_redir)
 	run_redir $@
-	;;
-socks_node_switch)
-	socks_node_switch $@
 	;;
 echolog)
 	echolog $@

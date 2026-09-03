@@ -121,28 +121,6 @@ do
 
 	if true then
 		local i = 0
-		local option = "node"
-		uci:foreach(appname, "socks", function(t)
-			i = i + 1
-			local node_id = t[option]
-			CONFIG[#CONFIG + 1] = {
-				log = true,
-				id = t[".name"],
-				remarks = "Socks节点列表[" .. i .. "]",
-				currentNode = node_id and uci:get_all(appname, node_id) or nil,
-				set = function(o, server)
-					uci:set(appname, t[".name"], option, server)
-					o.newNodeId = server
-				end,
-				delete = function(o)
-					uci:delete(appname, t[".name"])
-				end
-			}
-		end)
-	end
-
-	if true then
-		local i = 0
 		local option = "lbss"
 		uci:foreach(appname, "haproxy_config", function(t)
 			i = i + 1
@@ -162,49 +140,6 @@ do
 			}
 		end)
 	end
-
-	uci:foreach(appname, "socks", function(o)
-		local id = o[".name"]
-		local node_table = uci:get(appname, id, "autoswitch_backup_node")
-		if node_table then
-			local nodes = {}
-			local new_nodes = {}
-			for k,node_id in ipairs(node_table) do
-				if node_id then
-					local currentNode = uci:get_all(appname, node_id) or nil
-					if currentNode then
-						if currentNode.protocol and (currentNode.protocol == "_balancing" or currentNode.protocol == "_shunt") then
-							currentNode = nil
-						end
-						nodes[#nodes + 1] = {
-							log = true,
-							remarks = "Socks[" .. id .. "]备用节点的列表[" .. k .. "]",
-							currentNode = currentNode,
-							set = function(o, server)
-								for kk, vv in pairs(CONFIG) do
-									if (vv.remarks == id .. "备用节点的列表") then
-										table.insert(vv.new_nodes, server)
-									end
-								end
-							end
-						}
-					end
-				end
-			end
-			CONFIG[#CONFIG + 1] = {
-				remarks = id .. "备用节点的列表",
-				nodes = nodes,
-				new_nodes = new_nodes,
-				set = function(o)
-					for kk, vv in pairs(CONFIG) do
-						if (vv.remarks == id .. "备用节点的列表") then
-							uci:set_list(appname, id, "autoswitch_backup_node", vv.new_nodes)
-						end
-					end
-				end
-			}
-		end
-	end)
 
 	uci:foreach(appname, "nodes", function(node)
 		local node_id = node[".name"]
