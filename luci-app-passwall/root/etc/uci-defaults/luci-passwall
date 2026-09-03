@@ -36,9 +36,16 @@ chmod +x /usr/share/passwall/*.sh
 uci -q delete passwall.@global_xray[0].sniffing
 uci -q delete passwall.@global_xray[0].route_only
 uci -q delete passwall.@global[0].client_proxy
+uci -q delete passwall.@global[0].socks_enabled
+uci -q delete passwall.@global[0].advanced_log_feature
+uci -q delete passwall.@global[0].sys_log
+uci -q delete passwall.@global[0].persist_log_path
+uci -q delete passwall.@global[0].log_event_filter
+uci -q delete passwall.@global[0].log_event_cmd
+uci -q delete passwall.@global_forwarding[0].ipv6_tproxy
 uci -q commit passwall
 
-rm -f /tmp/luci-indexcache
+rm -f /tmp/luci-indexcache*
 rm -rf /tmp/luci-modulecache/
 killall -HUP rpcd 2>/dev/null
 

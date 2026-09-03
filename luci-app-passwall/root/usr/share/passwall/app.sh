@@ -289,24 +289,7 @@ ln_run() {
 	fi
 	#echo "${file_func} $*" >&2
 	[ -n "${file_func}" ] || echolog "  - 找不到 ${ln_name}，无法启动..."
-	[ "${output}" != "/dev/null" ] && local persist_log_path=$(config_t_get global persist_log_path) && local sys_log=$(config_t_get global sys_log "0")
-	if [ -z "$persist_log_path" ] && [ "$sys_log" != "1" ]; then
-		${file_func:-echolog " - ${ln_name}"} "$@" >${output} 2>&1 &
-	else
-		[ "${output: -1, -7}" == "TCP.log" ] && local protocol="TCP"
-		[ "${output: -1, -7}" == "UDP.log" ] && local protocol="UDP"
-		if [ -n "${persist_log_path}" ]; then
-			mkdir -p ${persist_log_path}
-			local log_file=${persist_log_path}/passwall_${protocol}_${ln_name}_$(date '+%F').log
-			echolog "记录到持久性日志文件：${log_file}"
-			${file_func:-echolog " - ${ln_name}"} "$@" >> ${log_file} 2>&1 &
-			sys_log=0
-		fi
-		if [ "${sys_log}" == "1" ]; then
-			echolog "记录 ${ln_name}_${protocol} 到系统日志"
-			${file_func:-echolog " - ${ln_name}"} "$@" 2>&1 | logger -t PASSWALL_${protocol}_${ln_name} &
-		fi
-	fi
+	${file_func:-echolog " - ${ln_name}"} "$@" >${output} 2>&1 &
 	process_count=$(ls $TMP_SCRIPT_FUNC_PATH | wc -l)
 	process_count=$((process_count + 1))
 	echo "${file_func:-echolog "  - ${ln_name}"} $@ >${output}" > $TMP_SCRIPT_FUNC_PATH/$process_count
@@ -866,10 +849,7 @@ run_redir() {
 		tcp_node_socks_port=$(get_new_port $(config_t_get global tcp_node_socks_port 1070))
 		tcp_node_http_port=$(config_t_get global tcp_node_http_port 0)
 		[ "$tcp_node_http_port" != "0" ] && tcp_node_http=1
-		if [ $PROXY_IPV6 == "1" ]; then
-			echolog "开启实验性IPv6透明代理(TProxy)，请确认您的节点及类型支持IPv6！"
-			PROXY_IPV6_UDP=1
-		fi
+		PROXY_IPV6_UDP=1
 
 			can_ipt=$(echo "$TPROXY_LIST" | grep "$type")
 		[ -z "$can_ipt" ] && type="socks"
@@ -1582,7 +1562,7 @@ ENABLED_ACLS=$(config_t_get global acl_enable 0)
 
 legacy_proxy_way=$(config_t_get global_forwarding tcp_proxy_way tproxy)
 [ "$legacy_proxy_way" != "tproxy" ] && echolog "检测到已废弃的 tcp_proxy_way=$legacy_proxy_way，本次运行强制使用 TPROXY。"
-PROXY_IPV6=$(config_t_get global_forwarding ipv6_tproxy 0)
+PROXY_IPV6=1
 TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports '80,443')
 UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
 TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports 'disable')

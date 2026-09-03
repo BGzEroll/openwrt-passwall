@@ -44,7 +44,7 @@ s:append(Template(appname .. "/rule/rule_version"))
 
 ---- Auto Update
 o = s:option(Flag, "auto_update", translate("Enable auto update rules"))
-o.default = 0
+o.default = 1
 o.rmempty = false
 
 ---- Week Update
@@ -58,14 +58,14 @@ o:value(4, translate("Every Thursday"))
 o:value(5, translate("Every Friday"))
 o:value(6, translate("Every Saturday"))
 o:value(0, translate("Every Sunday"))
-o.default = 7
+o.default = 4
 o:depends("auto_update", true)
 o.rmempty = true
 
 ---- Time Update
 o = s:option(ListValue, "time_update", translate("Update Time(every day)"))
 for t = 0, 23 do o:value(t, t .. ":00") end
-o.default = 0
+o.default = 6
 o:depends("week_update", "0")
 o:depends("week_update", "1")
 o:depends("week_update", "2")

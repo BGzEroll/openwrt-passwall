@@ -17,8 +17,8 @@ s.addremove = false
 
 ---- Delay Start
 o = s:option(Value, "start_delay", translate("Delay Start"),
-			 translate("Units:seconds"))
-o.default = "1"
+				 translate("Units:seconds"))
+o.default = "60"
 o.rmempty = true
 
 ---- Open and close Daemon
@@ -85,14 +85,14 @@ o.validate = port_validate
 
 ---- UDP Proxy Drop Ports
 o = s:option(Value, "udp_proxy_drop_ports", translate("UDP Proxy Drop Ports"))
-o.default = "443"
+o.default = "disable"
 o:value("disable", translate("No patterns are used"))
 o:value("443", translate("QUIC"))
 o.validate = port_validate
 
 ---- TCP Proxy Ports (the UCI key is retained for compatibility)
 o = s:option(Value, "tcp_redir_ports", translate("TCP Proxy Ports"))
-o.default = "22,25,53,143,465,587,853,993,995,80,443"
+o.default = "1:65535"
 o:value("1:65535", translate("All"))
 o:value("22,25,53,143,465,587,853,993,995,80,443", translate("Common Use"))
 o:value("80,443", translate("Only Web"))
@@ -104,11 +104,6 @@ o.default = "1:65535"
 o:value("1:65535", translate("All"))
 o:value("53", "DNS")
 o.validate = port_validate
-
----- IPv6 TProxy
-o = s:option(Flag, "ipv6_tproxy", translate("IPv6 TProxy"))
-o.default = 0
-o.rmempty = false
 
 o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发代理流量"))
 o.default = 0
@@ -135,11 +130,10 @@ o.placeholder = 'lan1,lan2,lan3,wan'
 o.description = translate("必须填写物理接口名称。")
 
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
-o.default = 0
+o.default = 1
 
 o = s:option(Flag, "accept_icmpv6", translate("Hijacking ICMPv6 (IPv6 PING)"))
-o:depends("ipv6_tproxy", true)
-o.default = 0
+o.default = 1
 
 if has_xray then
 	s_xray = m:section(TypedSection, "global_xray", "Xray " .. translate("Settings"))

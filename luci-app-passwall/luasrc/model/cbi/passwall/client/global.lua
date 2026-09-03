@@ -476,7 +476,7 @@ o.description = desc .. "</ul>"
 o:depends({dns_shunt = "dnsmasq", tcp_proxy_mode = "proxy", chn_list = "direct"})
 
 o = s:taboption("DNS", Flag, "dns_redirect", "DNS " .. translate("Redirect"), translate("Force Router DNS server to all local devices."))
-o.default = "0"
+o.default = "1"
 
 o = s:taboption("DNS", Button, "clear_ipset", translate("Clear NFTSET"), translate("Try this feature if the rule modification does not take effect."))
 o.inputstyle = "remove"
@@ -488,17 +488,17 @@ end
 s:tab("Proxy", translate("Mode"))
 
 o = s:taboption("Proxy", Flag, "use_direct_list", translatef("Use %s", translate("Direct List")))
-o.default = "1"
+o.default = "0"
 
 o = s:taboption("Proxy", Flag, "use_proxy_list", translatef("Use %s", translate("Proxy List")))
-o.default = "1"
+o.default = "0"
 
 o = s:taboption("Proxy", Flag, "use_block_list", translatef("Use %s", translate("Block List")))
-o.default = "1"
+o.default = "0"
 
 if has_gfwlist then
 	o = s:taboption("Proxy", Flag, "use_gfw_list", translatef("Use %s", translate("GFW List")))
-	o.default = "1"
+	o.default = "0"
 end
 
 if has_chnlist or has_chnroute then
@@ -521,26 +521,17 @@ udp_proxy_mode:value("disable", translate("No Proxy"))
 udp_proxy_mode:value("proxy", translate("Proxy"))
 udp_proxy_mode.default = "proxy"
 
-o = s:taboption("Proxy", DummyValue, "switch_mode", " ")
-o.template = appname .. "/global/proxy"
-
 o = s:taboption("Proxy", Flag, "localhost_proxy", translate("Localhost Proxy"), translate("When selected, localhost can transparent proxy."))
-o.default = "1"
+o.default = "0"
 o.rmempty = false
-
-o = s:taboption("Proxy", DummyValue, "_proxy_tips", " ")
-o.rawhtml = true
-o.cfgvalue = function(t, n)
-	return string.format('<a style="color: red" href="%s">%s</a>', api.url("acl"), translate("Use access control to configure MAC-based device bypass and port policies."))
-end
 
 s:tab("log", translate("Log"))
 o = s:taboption("log", Flag, "log_tcp", translate("Enable") .. " " .. translatef("%s Node Log", "TCP"))
-o.default = "1"
+o.default = "0"
 o.rmempty = false
 
 o = s:taboption("log", Flag, "log_udp", translate("Enable") .. " " .. translatef("%s Node Log", "UDP"))
-o.default = "1"
+o.default = "0"
 o.rmempty = false
 
 loglevel = s:taboption("log", ListValue, "loglevel", "Sing-Box/Xray " .. translate("Log Level"))
@@ -557,18 +548,6 @@ trojan_loglevel:value("1", "info")
 trojan_loglevel:value("2", "warn")
 trojan_loglevel:value("3", "error")
 trojan_loglevel:value("4", "fatal")
-
-o = s:taboption("log", Flag, "advanced_log_feature", translate("Advanced log feature"), translate("For professionals only."))
-o.default = "0"
-o = s:taboption("log", Flag, "sys_log", translate("Logging to system log"), translate("Logging to the system log for more advanced functions. For example, send logs to a dedicated log server."))
-o:depends("advanced_log_feature", "1")
-o.default = "0"
-o = s:taboption("log", Value, "persist_log_path", translate("Persist log file directory"), translate("The path to the directory used to store persist log files, the \"/\" at the end can be omitted. Leave it blank to disable this feature."))
-o:depends({ ["advanced_log_feature"] = 1, ["sys_log"] = 0 })
-o = s:taboption("log", Value, "log_event_filter", translate("Log Event Filter"), translate("Support regular expression."))
-o:depends("advanced_log_feature", "1")
-o = s:taboption("log", Value, "log_event_cmd", translate("Shell Command"), translate("Shell command to execute, replace log content with %s."))
-o:depends("advanced_log_feature", "1")
 
 for k, v in pairs(nodes_table) do
 	tcp_node:value(v.id, v["remark"])
