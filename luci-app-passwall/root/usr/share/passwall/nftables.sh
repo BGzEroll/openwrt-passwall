@@ -391,18 +391,20 @@ add_port_policy() {
 	nft "add rule $NFTABLE_NAME $chain counter return"
 }
 
-valid_macs() {
-	local item
+valid_macs_csv() {
+	local item mac separator
 	for item in $1; do
 		if echo "$item" | grep -Eiq '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'; then
-			echo "$item" | tr 'a-f' 'A-F'
+			mac=$(echo "$item" | tr 'a-f' 'A-F')
+			printf '%s%s' "$separator" "$mac"
+			separator=", "
 		fi
 	done
 }
 
 mac_match() {
 	local macs
-	macs=$(valid_macs "$1" | paste -sd, - | sed 's/,/, /g')
+	macs=$(valid_macs_csv "$1")
 	[ -n "$macs" ] && echo "ether saddr { $macs }"
 }
 
@@ -428,7 +430,7 @@ setup_acl() {
 		direct=$(config_n_get "$sid" direct 0)
 		[ "$direct" = "1" ] || continue
 		sources=$(config_n_get "$sid" sources)
-		mac_csv=$(valid_macs "$sources" | paste -sd, - | sed 's/,/, /g')
+		mac_csv=$(valid_macs_csv "$sources")
 		[ -n "$mac_csv" ] && nft "add element $NFTABLE_NAME $NFTSET_DIRECT_MACS { $mac_csv }" 2>/dev/null
 	done
 

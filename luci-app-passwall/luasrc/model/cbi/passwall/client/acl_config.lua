@@ -98,6 +98,7 @@ local function add_port_option(key, title, global_key, description, values)
 	end
 	option.validate = port_validate
 	option:depends("direct", "0")
+	option:depends("direct", "")
 	return option
 end
 

@@ -62,8 +62,4 @@ o.cfgvalue = function(t, n)
 	return e
 end
 
-o = s:option(Flag, "direct", translate("Direct"))
-o.default = "0"
-o.rmempty = false
-
 return m

@@ -1024,6 +1024,51 @@ msgstr "添加"
 msgid "ACLs"
 msgstr "访问控制"
 
+msgid "ACLs identify directly connected devices by MAC address and override ports only. Nodes, DNS and destination policy are global."
+msgstr "访问控制仅按 MAC 地址识别直连设备，并且只覆盖端口策略。节点、DNS 和目标地址策略均使用全局配置。"
+
+msgid "An ACL identifies directly connected devices by MAC address and only overrides their TCP/UDP port policy. Destination lists, nodes and DNS always use Global Config."
+msgstr "一个访问控制规则通过 MAC 地址识别直连设备，并且只覆盖其 TCP/UDP 端口策略。目标列表、节点和 DNS 始终使用全局配置。"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Device MAC Addresses"
+msgstr "设备 MAC 地址"
+
+msgid "Only MAC addresses are supported. One ACL can contain multiple directly connected LAN, Wi-Fi, bridge or VLAN devices."
+msgstr "仅支持 MAC 地址。一个访问控制规则可包含多个直连的 LAN、Wi-Fi、网桥或 VLAN 设备。"
+
+msgid "Only valid MAC addresses are accepted: "
+msgstr "仅接受有效的 MAC 地址："
+
+msgid "Direct"
+msgstr "直连"
+
+msgid "Completely bypass Passwall for these devices, including TCP, UDP, DNS hijack and ping hijack. Direct takes priority over every normal ACL."
+msgstr "这些设备完全绕过 Passwall，包括 TCP、UDP、DNS 劫持和 Ping 劫持。直连规则优先于所有普通访问控制规则。"
+
+msgid "TCP Bypass Ports"
+msgstr "TCP 不代理端口"
+
+msgid "UDP Bypass Ports"
+msgstr "UDP 不代理端口"
+
+msgid "These ports bypass Passwall before destination policy is evaluated."
+msgstr "这些端口会在判断目标地址策略前绕过 Passwall。"
+
+msgid "Drop only when the shared Global Policy classifies the destination as PROXY."
+msgstr "仅当共享的全局策略将目标地址判定为代理时丢弃。"
+
+msgid "TCP Proxy Ports"
+msgstr "TCP 代理端口"
+
+msgid "UDP Proxy Ports"
+msgstr "UDP 代理端口"
+
+msgid "The historical UCI key is retained, but TCP transparent proxying is TPROXY-only."
+msgstr "保留历史 UCI 配置键，但 TCP 透明代理仅使用 TPROXY。"
+
 msgid "ACLs is a tools which used to designate specific IP proxy mode."
 msgstr "访问控制列表是用于指定特殊 IP 代理模式的工具。"
 
