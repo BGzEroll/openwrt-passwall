@@ -1661,10 +1661,6 @@ UDP_PROXY_MODE=$(config_t_get global udp_proxy_mode proxy)
 [ "${TCP_PROXY_MODE}" != "disable" ] && TCP_PROXY_MODE="proxy"
 [ "${UDP_PROXY_MODE}" != "disable" ] && UDP_PROXY_MODE="proxy"
 LOCALHOST_PROXY=$(config_t_get global localhost_proxy 1)
-[ "${LOCALHOST_PROXY}" == 1 ] && {
-	LOCALHOST_TCP_PROXY_MODE=$TCP_PROXY_MODE
-	LOCALHOST_UDP_PROXY_MODE=$UDP_PROXY_MODE
-}
 CLIENT_PROXY=$(config_t_get global client_proxy 1)
 DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
 [ -z "$(first_type $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"

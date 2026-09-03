@@ -11,7 +11,7 @@
 - PBR 开启：PROXY 流量通过策略路由交给外置透明代理网关；
 - ACL：只描述设备 MAC 与端口，不再承担节点、DNS 和目的地址策略；
 - DNS：只保留全局 DNS 生命周期；
-- Ping hijack：只处理 IPv4/IPv6 Echo Request。
+- Ping hijack：只处理 IPv4 Echo Request；启用 IPv6 TProxy 时再处理 IPv6 Echo Request。
 
 已对本机的目标源码树做只读核对：分支为 `openwrt-23.05`，`network.sh` 提供 `network_get_subnets`、`network_get_subnets6`、`network_get_device`，dnsmasq Makefile 为 2.90、`PKG_RELEASE=2`。
 
@@ -163,6 +163,8 @@ PROXY
 ```
 
 PBR ON 的四个 protocol/family Proxy Action 链只打 mark，不包含 `tproxy` 表达式。本地返回 lo 的 TPROXY 入口也不生成。
+
+当前实现仍以 Global Config 的 `TCP_NODE`/`UDP_NODE` 是否有效决定对应协议是否生成代理动作。PBR ON 虽不使用本地 TPROXY，但仍需为相应协议选择有效全局节点；旧 ACL 节点字段不会参与该判断。
 
 ## 8. localhost
 
@@ -406,7 +408,7 @@ logread -e passwall
 pgrep -af 'xray|sing-box|hysteria|ss-redir|ipt2socks'
 ```
 
-需要把“源码/静态规则证据”“目标系统 build 证据”“路由器运行证据”“真实流量证据”分开记录；本文件当前只确认前一类。
+需要把“源码/静态规则证据”“宿主机 namespace 装载证据”“目标系统 build 证据”“路由器运行证据”“真实流量证据”分开记录；本文件当前确认前两类，后三类尚未确认。
 
 ## 23. 提示词交付项对照
 

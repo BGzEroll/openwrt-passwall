@@ -18,10 +18,11 @@
 - TCP 不再支持 NAT REDIRECT 透明代理；DNS 和 Ping 仍保留 nftables NAT `redirect` 动作。
 - `iproute_shunt=0`：`fwmark 0x1 → table 100 → local lo → TPROXY → 本机代理核心`。
 - `iproute_shunt=1`：`fwmark 0x1 → table 100 → 外置透明代理网关`，不执行本地 TPROXY。
+- 两种路径都沿用 Global Config 的 TCP/UDP 节点启用状态；PBR ON 不使用本地 TPROXY，但仍需为相应协议选择有效的全局节点以启用分类路径。
 - ACL Source 仅接受 MAC 地址；一条 ACL 可以包含多个 MAC。
 - 普通 ACL 只覆盖 TCP/UDP 的 Bypass、Proxy 和 Proxy Drop 端口，节点、DNS 和目的地址列表全部使用 Global Config。
 - Direct ACL 完整绕过 TCP、UDP、DNS hijack 和 Ping hijack；同一 MAC 同时命中多条 ACL 时 Direct 优先。
-- Ping hijack 只接收 IPv4/IPv6 Echo Request，不处理 NDP、RA、SLAAC、PMTUD 或其它 ICMPv6 控制报文。
+- Ping hijack 只接收 IPv4 Echo Request；启用 IPv6 TProxy 时也接收 IPv6 Echo Request，但不处理 NDP、RA、SLAAC、PMTUD 或其它 ICMPv6 控制报文。
 
 实现细节、Before/After、23 项交付对照和实机待验证项见 [nftables 与 ACL 透明代理重构说明](docs/nftables与ACL透明代理重构说明.md)。
 
@@ -404,9 +405,9 @@ Transparent Proxy
 
 ---
 
-# 当前实际配置
+# 当前部署示例（需以目标机 UCI 为准）
 
-当前网络配置：
+以下是本 Fork 面向的部署示例，并非仓库默认 UCI 值：
 
 | 配置项 | 当前值 |
 | --- | --- |

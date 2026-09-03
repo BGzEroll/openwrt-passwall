@@ -1,7 +1,6 @@
 #!/bin/bash
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-MY_PATH="$DIR/nftables.sh"
 NFTABLE_NAME="inet passwall"
 
 # One mark namespace and one routing table are shared by packet marking,
@@ -29,8 +28,6 @@ NFTSET_BLACKLIST6="passwall_blacklist6"
 NFTSET_WHITELIST6="passwall_whitelist6"
 NFTSET_BLOCKLIST6="passwall_blocklist6"
 
-FORCE_INDEX=0
-
 . /lib/functions/network.sh
 
 FWI=$(uci -q get firewall.passwall.path 2>/dev/null)
@@ -44,41 +41,9 @@ factor() {
 	fi
 }
 
-insert_rule_before() {
-	[ $# -ge 4 ] || return 1
-	local table_name="$1" chain_name="$2" keyword="$3" rule="$4"
-	local default_index="${5:-0}"
-	local index
-	index=$(nft -a list chain $table_name "$chain_name" 2>/dev/null | grep "$keyword" | awk -F '# handle ' '{print$2}' | head -n 1 | awk '{print $1}')
-	if [ -z "$index" ] && [ "$default_index" = "0" ]; then
-		nft "add rule $table_name $chain_name $rule"
-	else
-		nft "insert rule $table_name $chain_name position ${index:-$default_index} $rule"
-	fi
-}
-
-RULE_LAST_INDEX() {
-	[ $# -ge 3 ] || {
-		echolog "索引列举方式不正确（nftables），终止执行！"
-		return 1
-	}
-	local table_name="$1" chain_name="$2" keyword="$3" default="${4:-0}"
-	local index
-	index=$(nft -a list chain $table_name "$chain_name" 2>/dev/null | grep "$keyword" | awk -F '# handle ' '{print$2}' | head -n 1 | awk '{print $1}')
-	echo "${index:-$default}"
-}
-
 create_chain() {
 	nft "add chain $NFTABLE_NAME $1" 2>/dev/null
 	nft "flush chain $NFTABLE_NAME $1"
-}
-
-destroy_nftset() {
-	local set_name
-	for set_name in "$@"; do
-		nft flush set $NFTABLE_NAME "$set_name" 2>/dev/null
-		nft delete set $NFTABLE_NAME "$set_name" 2>/dev/null
-	done
 }
 
 gen_nft_tables() {
@@ -446,7 +411,7 @@ acl_value() {
 
 setup_acl() {
 	[ "$ENABLED_ACLS" = "1" ] || return 0
-	local sid sources direct remarks macs mac_csv chain deprecated
+	local sid sources direct remarks macs mac_csv chain
 
 	# Aggregate every Direct ACL first. This gives Direct priority even if the
 	# same MAC also appears in an earlier normal ACL.
@@ -752,11 +717,6 @@ flush_nftset() {
 	done
 }
 
-flush_table() {
-	nft flush table $NFTABLE_NAME 2>/dev/null
-	nft delete table $NFTABLE_NAME 2>/dev/null
-}
-
 flush_nftset_reload() {
 	del_firewall_rule
 	rm -rf /tmp/singbox_passwall* /tmp/etc/passwall_tmp/dnsmasq*
@@ -792,8 +752,6 @@ stop() {
 arg1=$1
 shift
 case "$arg1" in
-	RULE_LAST_INDEX) RULE_LAST_INDEX "$@" ;;
-	insert_rule_before) insert_rule_before "$@" ;;
 	flush_nftset) flush_nftset ;;
 	flush_nftset_reload) flush_nftset_reload ;;
 	get_wan_ip) get_wan_ip ;;
