@@ -5,19 +5,16 @@
 [ -f /var/lock/passwall_ready.lock ] || exit 0
 [ "$ACTION" != "ifupdate" ] || [ -n "$IFUPDATE_ADDRESSES" ] || [ -n "$IFUPDATE_PREFIXES" ] || exit 0
 
-default_device=$(ip route show default 2>/dev/null | awk '/^default / { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
-relevant=0
+. /lib/functions/network.sh
+network_find_wan wan_interface
+network_find_wan6 wan6_interface
 
-if [ "$ACTION" = "ifup" ]; then
-	[ -n "$DEVICE" ] && [ "$default_device" = "$DEVICE" ] && relevant=1
-else
-	default_device6=$(ip -6 route show default 2>/dev/null | awk '/^default / { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
-	. /lib/functions/network.sh
-	network_find_wan wan_interface
-	network_find_wan6 wan6_interface
-	[ -n "$INTERFACE" ] && { [ "$INTERFACE" = "$wan_interface" ] || [ "$INTERFACE" = "$wan6_interface" ]; } && relevant=1
-	[ -n "$DEVICE" ] && { [ "$DEVICE" = "$default_device" ] || [ "$DEVICE" = "$default_device6" ]; } && relevant=1
-fi
+default_device4=$(ip route show default 2>/dev/null | awk '/^default / { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+default_device6=$(ip -6 route show default 2>/dev/null | awk '/^default / { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+
+relevant=0
+[ -n "$INTERFACE" ] && { [ "$INTERFACE" = "$wan_interface" ] || [ "$INTERFACE" = "$wan6_interface" ]; } && relevant=1
+[ -n "$DEVICE" ] && { [ "$DEVICE" = "$default_device4" ] || [ "$DEVICE" = "$default_device6" ]; } && relevant=1
 
 [ "$relevant" = "1" ] || exit 0
 
