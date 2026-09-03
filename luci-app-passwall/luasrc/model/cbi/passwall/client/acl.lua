@@ -4,7 +4,7 @@ local sys = api.sys
 
 m = Map(appname)
 
-s = m:section(TypedSection, "global", translate("ACLs"), "<font color='red'>" .. translate("ACLs is a tools which used to designate specific IP proxy mode.") .. "</font>")
+s = m:section(TypedSection, "global", translate("ACLs"), "<font color='red'>" .. translate("ACLs identify directly connected devices by MAC address and override ports only. Nodes, DNS and destination policy are global.") .. "</font>")
 s.anonymous = true
 
 o = s:option(Flag, "acl_enable", translate("Main switch"))
@@ -23,7 +23,6 @@ function s.create(e, t)
 	luci.http.redirect(e.extedit:format(t))
 end
 function s.remove(e, t)
-	sys.call("rm -rf /tmp/etc/passwall_tmp/dns_" .. t .. "*")
 	TypedSection.remove(e, t)
 end
 
@@ -44,7 +43,7 @@ sys.net.mac_hints(function(e, t)
 	}
 end)
 
-o = s:option(DummyValue, "sources", translate("Source"))
+o = s:option(DummyValue, "sources", translate("Device MAC Addresses"))
 o.rawhtml = true
 o.cfgvalue = function(t, n)
 	local e = ''
@@ -62,36 +61,8 @@ o.cfgvalue = function(t, n)
 	return e
 end
 
---[[
----- TCP No Redir Ports
-o = s:option(Value, "tcp_no_redir_ports", translate("TCP No Redir Ports"))
-o.default = "default"
-o:value("disable", translate("No patterns are used"))
-o:value("default", translate("Default"))
-o:value("1:65535", translate("All"))
-
----- UDP No Redir Ports
-o = s:option(Value, "udp_no_redir_ports", translate("UDP No Redir Ports"))
-o.default = "default"
-o:value("disable", translate("No patterns are used"))
-o:value("default", translate("Default"))
-o:value("1:65535", translate("All"))
-
----- TCP Redir Ports
-o = s:option(Value, "tcp_redir_ports", translate("TCP Redir Ports"))
-o.default = "default"
-o:value("default", translate("Default"))
-o:value("1:65535", translate("All"))
-o:value("80,443", "80,443")
-o:value("80:65535", "80 " .. translate("or more"))
-o:value("1:443", "443 " .. translate("or less"))
-
----- UDP Redir Ports
-o = s:option(Value, "udp_redir_ports", translate("UDP Redir Ports"))
-o.default = "default"
-o:value("default", translate("Default"))
-o:value("1:65535", translate("All"))
-o:value("53", "53")
-]]--
+o = s:option(Flag, "direct", translate("Direct"))
+o.default = "0"
+o.rmempty = false
 
 return m

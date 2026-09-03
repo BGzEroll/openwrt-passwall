@@ -3,8 +3,6 @@ local appname = "passwall"
 local fs = api.fs
 local has_singbox = api.finded_com("singbox")
 local has_xray = api.finded_com("xray")
-local has_fw3 = api.is_finded("fw3")
-local has_fw4 = api.is_finded("fw4")
 
 local port_validate = function(self, value, t)
 	return value:gsub("-", ":")
@@ -62,15 +60,15 @@ s = m:section(TypedSection, "global_forwarding",
 s.anonymous = true
 s.addremove = false
 
----- TCP No Redir Ports
-o = s:option(Value, "tcp_no_redir_ports", translate("TCP No Redir Ports"))
+---- TCP Bypass Ports
+o = s:option(Value, "tcp_no_redir_ports", translate("TCP Bypass Ports"))
 o.default = "disable"
 o:value("disable", translate("No patterns are used"))
 o:value("1:65535", translate("All"))
 o.validate = port_validate
 
----- UDP No Redir Ports
-o = s:option(Value, "udp_no_redir_ports", translate("UDP No Redir Ports"),
+---- UDP Bypass Ports
+o = s:option(Value, "udp_no_redir_ports", translate("UDP Bypass Ports"),
 			 "<font color='red'>" .. translate(
 				 "Fill in the ports you don't want to be forwarded by the agent, with the highest priority.") ..
 				 "</font>")
@@ -92,56 +90,34 @@ o:value("disable", translate("No patterns are used"))
 o:value("443", translate("QUIC"))
 o.validate = port_validate
 
----- TCP Redir Ports
-o = s:option(Value, "tcp_redir_ports", translate("TCP Redir Ports"))
+---- TCP Proxy Ports (the UCI key is retained for compatibility)
+o = s:option(Value, "tcp_redir_ports", translate("TCP Proxy Ports"))
 o.default = "22,25,53,143,465,587,853,993,995,80,443"
 o:value("1:65535", translate("All"))
 o:value("22,25,53,143,465,587,853,993,995,80,443", translate("Common Use"))
 o:value("80,443", translate("Only Web"))
 o.validate = port_validate
 
----- UDP Redir Ports
-o = s:option(Value, "udp_redir_ports", translate("UDP Redir Ports"))
+---- UDP Proxy Ports (the UCI key is retained for compatibility)
+o = s:option(Value, "udp_redir_ports", translate("UDP Proxy Ports"))
 o.default = "1:65535"
 o:value("1:65535", translate("All"))
 o:value("53", "DNS")
 o.validate = port_validate
 
----- Use nftables
-o = s:option(ListValue, "use_nft", translate("Firewall tools"))
-o.default = "0"
-if has_fw3 then
-	o:value("0", "IPtables")
-end
-if has_fw4 then
-	o:value("1", "NFtables")
+o = s:option(DummyValue, "_firewall_backend", translate("Firewall tools"))
+o.default = "nftables / TPROXY"
+o.cfgvalue = function()
+	return "nftables / TPROXY"
 end
 
-if (os.execute("lsmod | grep -i REDIRECT >/dev/null") == 0 and os.execute("lsmod | grep -i TPROXY >/dev/null") == 0) or (os.execute("lsmod | grep -i nft_redir >/dev/null") == 0 and os.execute("lsmod | grep -i nft_tproxy >/dev/null") == 0) then
-	o = s:option(ListValue, "tcp_proxy_way", translate("TCP Proxy Way"))
-	o.default = "redirect"
-	o:value("redirect", "REDIRECT")
-	o:value("tproxy", "TPROXY")
-	o:depends("ipv6_tproxy", false)
-
-	o = s:option(ListValue, "_tcp_proxy_way", translate("TCP Proxy Way"))
-	o.default = "tproxy"
-	o:value("tproxy", "TPROXY")
-	o:depends("ipv6_tproxy", true)
-	o.write = function(self, section, value)
-		return self.map:set(section, "tcp_proxy_way", value)
-	end
-
-	if os.execute("lsmod | grep -i ip6table_mangle >/dev/null") == 0 or os.execute("lsmod | grep -i nft_tproxy >/dev/null") == 0 then
-		---- IPv6 TProxy
-		o = s:option(Flag, "ipv6_tproxy", translate("IPv6 TProxy"),
-					"<font color='red'>" .. translate(
-						"Experimental feature. Make sure that your node supports IPv6.") ..
-						"</font>")
-		o.default = 0
-		o.rmempty = false
-	end
-end
+---- IPv6 TProxy
+o = s:option(Flag, "ipv6_tproxy", translate("IPv6 TProxy"),
+			"<font color='red'>" .. translate(
+				"Make sure that your global node and network support IPv6.") ..
+				"</font>")
+o.default = 0
+o.rmempty = false
 
 o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发代理流量"))
 o.default = 0

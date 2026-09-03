@@ -740,7 +740,6 @@ function gen_config(var)
 	local node_id = var["-node"]
 	local server_host = var["-server_host"]
 	local server_port = var["-server_port"]
-	local tcp_proxy_way = var["-tcp_proxy_way"]
 	local tcp_redir_port = var["-tcp_redir_port"]
 	local udp_redir_port = var["-udp_redir_port"]
 	local local_socks_address = var["-local_socks_address"] or "0.0.0.0"
@@ -840,28 +839,16 @@ function gen_config(var)
 		end
 
 		if tcp_redir_port then
-			if tcp_proxy_way ~= "tproxy" then
-				local inbound = {
-					type = "redirect",
-					tag = "redirect_tcp",
-					listen = "::",
-					listen_port = tonumber(tcp_redir_port),
-					sniff = true,
-					sniff_override_destination = (singbox_settings.sniff_override_destination == "1") and true or false,
-				}
-				table.insert(inbounds, inbound)
-			else
-				local inbound = {
-					type = "tproxy",
-					tag = "tproxy_tcp",
-					network = "tcp",
-					listen = "::",
-					listen_port = tonumber(tcp_redir_port),
-					sniff = true,
-					sniff_override_destination = (singbox_settings.sniff_override_destination == "1") and true or false,
-				}
-				table.insert(inbounds, inbound)
-			end
+			local inbound = {
+				type = "tproxy",
+				tag = "tproxy_tcp",
+				network = "tcp",
+				listen = "::",
+				listen_port = tonumber(tcp_redir_port),
+				sniff = true,
+				sniff_override_destination = (singbox_settings.sniff_override_destination == "1") and true or false,
+			}
+			table.insert(inbounds, inbound)
 		end
 
 		if udp_redir_port then
@@ -1077,11 +1064,7 @@ function gen_config(var)
 						inboundTag = {}
 						if e["inbound"]:find("tproxy") then
 							if tcp_redir_port then
-								if tcp_proxy_way == "tproxy" then
-									table.insert(inboundTag, "tproxy_tcp")
-								else
-									table.insert(inboundTag, "redirect_tcp")
-								end
+								table.insert(inboundTag, "tproxy_tcp")
 							end
 							if udp_redir_port then
 								table.insert(inboundTag, "tproxy_udp")

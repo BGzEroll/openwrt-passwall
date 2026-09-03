@@ -52,14 +52,6 @@ function s.remove(e, t)
 			m:del(s[".name"])
 		end
 	end)
-	m.uci:foreach(appname, "acl_rule", function(s)
-		if s["tcp_node"] and s["tcp_node"] == t then
-			m:set(s[".name"], "tcp_node", "default")
-		end
-		if s["udp_node"] and s["udp_node"] == t then
-			m:set(s[".name"], "udp_node", "default")
-		end
-	end)
 	TypedSection.remove(e, t)
 	local new_node = "nil"
 	local node0 = m:get("@nodes[0]") or nil

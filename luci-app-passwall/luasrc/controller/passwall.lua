@@ -362,10 +362,6 @@ function clear_all_nodes()
 	uci:foreach(appname, "haproxy_config", function(t)
 		uci:delete(appname, t[".name"])
 	end)
-	uci:foreach(appname, "acl_rule", function(t)
-		uci:set(appname, t[".name"], "tcp_node", "default")
-		uci:set(appname, t[".name"], "udp_node", "default")
-	end)
 	uci:foreach(appname, "nodes", function(node)
 		uci:delete(appname, node['.name'])
 	end)
@@ -398,14 +394,6 @@ function delete_select_nodes()
 		uci:foreach(appname, "haproxy_config", function(t)
 			if t["lbss"] == w then
 				uci:delete(appname, t[".name"])
-			end
-		end)
-		uci:foreach(appname, "acl_rule", function(t)
-			if t["tcp_node"] == w then
-				uci:set(appname, t[".name"], "tcp_node", "default")
-			end
-			if t["udp_node"] == w then
-				uci:set(appname, t[".name"], "udp_node", "default")
 			end
 		end)
 		uci:delete(appname, w)

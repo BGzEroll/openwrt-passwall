@@ -36,8 +36,7 @@ local chnlist_url = ucic:get(name, "@global_rules[0]", "chnlist_url") or {"https
 local geoip_api =  "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
 local geosite_api =  "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
 local asset_location = ucic:get_first(name, 'global_rules', "v2ray_location_asset", "/usr/share/v2ray/")
-local use_nft = ucic:get(name, "@global_forwarding[0]", "use_nft") or "0"
-
+local use_nft = "1"
 if arg3 == "cron" then
 	arg2 = nil
 end
@@ -473,10 +472,6 @@ if reboot == 1 then
 	end
 
 	log("重启服务，应用新的规则。")
-	if use_nft == "1" then
-		luci.sys.call("sh /usr/share/" .. name .. "/nftables.sh flush_nftset_reload > /dev/null 2>&1 &")
-	else
-		luci.sys.call("sh /usr/share/" .. name .. "/iptables.sh flush_ipset_reload > /dev/null 2>&1 &")
-	end
+	luci.sys.call("sh /usr/share/" .. name .. "/nftables.sh flush_nftset_reload > /dev/null 2>&1 &")
 end
 log("规则更新完毕...")

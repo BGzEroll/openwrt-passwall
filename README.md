@@ -2,35 +2,28 @@
 
 基于 OpenWrt Passwall 的个人定制版本。
 
-本 Fork 主要增加了一种：
+本 Fork 已收敛为面向 `BGzEroll/immortalwrt` `openwrt-23.05` 的 nftables 专用实现。透明代理只支持 TCP/UDP TPROXY，并支持两种 Proxy Action：
 
-> **由 Passwall 负责流量分流，再通过 Policy Routing 将需要代理的流量转发至独立透明代理机**
+> **PBR 关闭时交给 OpenWrt 本机透明代理核心；PBR 开启时通过 Policy Routing 转发至独立透明代理机。**
 
-的工作模式。
-
-与标准 Passwall 将透明代理核心直接运行在 OpenWrt 上不同，本方案将：
-
-- VLAN
-- 路由
-- 防火墙
-- DNS
-- ACL
-- 分流规则
-- nftables
-- Policy Routing
-
-保留在 OpenWrt 上处理，而将：
-
-- mihomo
-- sing-box
-- Xray
-- 其他透明代理核心
-
-运行在独立 Linux / VM / LXC / 物理机上。
+无论 Proxy Action 选用哪条路径，VLAN、路由、防火墙、DNS、ACL、分流规则、nftables 和 Policy Routing 都由 OpenWrt 统一管理。PBR 开启时，mihomo、sing-box、Xray 等实际代理核心可以运行在独立 Linux / VM / LXC / 物理机上。
 
 可以简单理解为：
 
-> **Passwall 负责决定哪些流量需要代理，外置代理机负责实际完成代理。**
+> **Passwall 负责 WHO / WHICH PORTS / WHERE；Proxy Action 只负责把 PROXY 流量送到本机 TPROXY 或外置代理机。**
+
+## 专用架构约束
+
+- 客户端透明代理仅使用 nftables，不再提供 iptables 后端选择。
+- TCP 不再支持 NAT REDIRECT 透明代理；DNS 和 Ping 仍保留 nftables NAT `redirect` 动作。
+- `iproute_shunt=0`：`fwmark 0x1 → table 100 → local lo → TPROXY → 本机代理核心`。
+- `iproute_shunt=1`：`fwmark 0x1 → table 100 → 外置透明代理网关`，不执行本地 TPROXY。
+- ACL Source 仅接受 MAC 地址；一条 ACL 可以包含多个 MAC。
+- 普通 ACL 只覆盖 TCP/UDP 的 Bypass、Proxy 和 Proxy Drop 端口，节点、DNS 和目的地址列表全部使用 Global Config。
+- Direct ACL 完整绕过 TCP、UDP、DNS hijack 和 Ping hijack；同一 MAC 同时命中多条 ACL 时 Direct 优先。
+- Ping hijack 只接收 IPv4/IPv6 Echo Request，不处理 NDP、RA、SLAAC、PMTUD 或其它 ICMPv6 控制报文。
+
+实现细节、Before/After、23 项交付对照和实机待验证项见 [nftables 与 ACL 透明代理重构说明](docs/nftables与ACL透明代理重构说明.md)。
 
 ---
 
@@ -771,14 +764,14 @@ Proxy
 
 # DNS 与规则分流
 
-本模式主要改变的是：
+PBR 模式主要改变的是：
 
 > **被 Passwall 判定为 PROXY 的流量最终被发送到哪里。**
 
-Passwall 原有的分流体系仍然保留在 OpenWrt 上，例如：
+全局分流体系仍然保留在 OpenWrt 上，例如：
 
 - DNS
-- ACL
+- MAC ACL 端口策略
 - Direct List
 - Proxy List
 - Block List
@@ -859,7 +852,7 @@ VLAN 0                       │
 
 # 当前实现范围
 
-该定制功能主要针对：
+该定制版本固定针对：
 
 ```text
 fw4
@@ -869,26 +862,23 @@ nftables
 
 环境实现。
 
-目前不建议将该功能描述为完整支持所有 iptables / nftables 环境。
-
-推荐使用：
+兼容基线为：
 
 ```text
-OpenWrt
-fw4
-nftables
-Passwall
+BGzEroll/immortalwrt openwrt-23.05
+firewall4 / nftables
+dnsmasq 2.90-2（启用 nftset）
 ```
 
-组合。
+旧配置中的 `use_nft=0` 不再选择 iptables；`tcp_proxy_way=redirect` 会在运行时按 TPROXY 处理并记录废弃提示。
 
 ---
 
 # 已知问题
 
-注意！本插件因为我个人源码使用的是旧版本的，所以并未适配dnsmasq的新改动！
-具体可看此[issue](https://github.com/xiaorouji/openwrt-passwall/issues/3455)。
-想要适配可参考此[Commit](https://github.com/Openwrt-Passwall/openwrt-passwall/commit/87051ecf1ac3acfe53a5a63e6d59a3fdc18d6453)。
+本 Fork 有意固定兼容 `BGzEroll/immortalwrt` 的 `openwrt-23.05` 与 dnsmasq `2.90-2`，未移植新版 dnsmasq `conf-dir` 自动探测改动；现有全局 dnsmasq 配置注入目录和语义保持不变。
+
+相关背景可看此 [issue](https://github.com/xiaorouji/openwrt-passwall/issues/3455)。如果未来改变兼容基线，可参考上游 [commit 87051ecf](https://github.com/Openwrt-Passwall/openwrt-passwall/commit/87051ecf1ac3acfe53a5a63e6d59a3fdc18d6453)，但当前版本明确不移植该提交。
 
 ---
 

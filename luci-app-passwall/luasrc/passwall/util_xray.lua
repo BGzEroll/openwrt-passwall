@@ -537,7 +537,6 @@ function gen_config(var)
 	local node_id = var["-node"]
 	local server_host = var["-server_host"]
 	local server_port = var["-server_port"]
-	local tcp_proxy_way = var["-tcp_proxy_way"] or "redirect"
 	local tcp_redir_port = var["-tcp_redir_port"]
 	local udp_redir_port = var["-udp_redir_port"]
 	local local_socks_address = var["-local_socks_address"] or "0.0.0.0"
@@ -637,7 +636,7 @@ function gen_config(var)
 				tcp_inbound.tag = "tcp_redir"
 				tcp_inbound.settings.network = "tcp"
 				tcp_inbound.port = tonumber(tcp_redir_port)
-				tcp_inbound.streamSettings.sockopt.tproxy = tcp_proxy_way
+				tcp_inbound.streamSettings.sockopt.tproxy = "tproxy"
 				table.insert(inbounds, tcp_inbound)
 			end
 

@@ -314,7 +314,7 @@ if sys.call('[ -f "/www/luci-static/resources/uci.js" ]') == 0 then
 end
 
 function m.on_commit(self)
-	luci.sys.call('[ -n "$(nft list sets 2>/dev/null | grep \"passwall_\")" ] && sh /usr/share/passwall/nftables.sh flush_nftset || sh /usr/share/passwall/iptables.sh flush_ipset > /dev/null 2>&1 &')
+	luci.sys.call('sh /usr/share/passwall/nftables.sh flush_nftset > /dev/null 2>&1 &')
 end
 
 return m

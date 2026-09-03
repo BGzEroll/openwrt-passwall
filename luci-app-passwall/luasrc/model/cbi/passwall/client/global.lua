@@ -509,14 +509,10 @@ o:depends({dns_shunt = "dnsmasq", tcp_proxy_mode = "proxy", chn_list = "direct"}
 o = s:taboption("DNS", Flag, "dns_redirect", "DNS " .. translate("Redirect"), translate("Force Router DNS server to all local devices."))
 o.default = "0"
 
-if (uci:get(appname, "@global_forwarding[0]", "use_nft") or "0") == "1" then
-	o = s:taboption("DNS", Button, "clear_ipset", translate("Clear NFTSET"), translate("Try this feature if the rule modification does not take effect."))
-else
-	o = s:taboption("DNS", Button, "clear_ipset", translate("Clear IPSET"), translate("Try this feature if the rule modification does not take effect."))
-end
+o = s:taboption("DNS", Button, "clear_ipset", translate("Clear NFTSET"), translate("Try this feature if the rule modification does not take effect."))
 o.inputstyle = "remove"
 function o.write(e, e)
-	luci.sys.call('[ -n "$(nft list sets 2>/dev/null | grep \"passwall_\")" ] && sh /usr/share/passwall/nftables.sh flush_nftset_reload || sh /usr/share/passwall/iptables.sh flush_ipset_reload > /dev/null 2>&1 &')
+	luci.sys.call('sh /usr/share/passwall/nftables.sh flush_nftset_reload > /dev/null 2>&1 &')
 	luci.http.redirect(api.url("log"))
 end
 
@@ -570,7 +566,7 @@ o.rmempty = false
 o = s:taboption("Proxy", DummyValue, "_proxy_tips", " ")
 o.rawhtml = true
 o.cfgvalue = function(t, n)
-	return string.format('<a style="color: red" href="%s">%s</a>', api.url("acl"), translate("Want different devices to use different proxy modes/ports/nodes? Please use access control."))
+	return string.format('<a style="color: red" href="%s">%s</a>', api.url("acl"), translate("Use access control to configure MAC-based device bypass and port policies."))
 end
 
 s:tab("log", translate("Log"))

@@ -163,28 +163,6 @@ do
 		end)
 	end
 
-	if true then
-		local i = 0
-		local options = {"tcp", "udp"}
-		uci:foreach(appname, "acl_rule", function(t)
-			i = i + 1
-			for index, value in ipairs(options) do
-				local option = value .. "_node"
-				local node_id = t[option]
-				CONFIG[#CONFIG + 1] = {
-					log = true,
-					id = t[".name"],
-					remarks = "访问控制列表[" .. i .. "]",
-					currentNode = node_id and uci:get_all(appname, node_id) or nil,
-					set = function(o, server)
-						uci:set(appname, t[".name"], option, server)
-						o.newNodeId = server
-					end
-				}
-			end
-		end)
-	end
-
 	uci:foreach(appname, "socks", function(o)
 		local id = o[".name"]
 		local node_table = uci:get(appname, id, "autoswitch_backup_node")

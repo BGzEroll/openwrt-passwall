@@ -47,7 +47,6 @@ function gen_config(var)
 	local local_http_port = var["-local_http_port"]
 	local local_http_username = var["-local_http_username"]
 	local local_http_password = var["-local_http_password"]
-	local tcp_proxy_way = var["-tcp_proxy_way"]
 	local server_host = var["-server_host"] or node.address
 	local server_port = var["-server_port"] or node.port
 
@@ -103,10 +102,7 @@ function gen_config(var)
 			username = (local_http_username and local_http_password) and local_http_username or nil,
 			password = (local_http_username and local_http_password) and local_http_password or nil,
 		} or nil,
-		tcpRedirect = ("redirect" == tcp_proxy_way and local_tcp_redir_port) and {
-			listen = "0.0.0.0:" .. local_tcp_redir_port
-		} or nil,
-		tcpTProxy = ("tproxy" == tcp_proxy_way and local_tcp_redir_port) and {
+		tcpTProxy = (local_tcp_redir_port) and {
 			listen = "0.0.0.0:" .. local_tcp_redir_port
 		} or nil,
 		udpTProxy = (local_udp_redir_port) and {
