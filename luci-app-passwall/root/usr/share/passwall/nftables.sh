@@ -224,14 +224,6 @@ setup_sets() {
 	done
 }
 
-filter_haproxy() {
-	local item ip
-	for item in $haproxy_items; do
-		ip=$(get_host_ip ipv4 "$(echo "$item" | awk -F: '{print $1}')" 1)
-		[ -n "$ip" ] && insert_nftset "$NFTSET_VPSLIST" -1 "$ip"
-	done
-}
-
 filter_vps_addr() {
 	local server_host vps_ip4 vps_ip6
 	for server_host in "$@"; do
@@ -611,7 +603,6 @@ filter_node() {
 
 setup_node_bypass() {
 	filter_vpsip
-	filter_haproxy
 	filter_vps_addr "$(config_n_get "$TCP_NODE" address)" "$(config_n_get "$UDP_NODE" address)"
 
 	# sing-box/Xray may bind an outbound to a dedicated interface. Preserve the

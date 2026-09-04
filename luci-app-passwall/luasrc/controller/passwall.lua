@@ -25,9 +25,6 @@ function index()
 	entry({"admin", "services", appname, "node_list"}, cbi(appname .. "/client/node_list"), _("Node List"), 2).dependent = true
 	entry({"admin", "services", appname, "node_subscribe"}, cbi(appname .. "/client/node_subscribe"), _("Node Subscribe"), 3).dependent = true
 	entry({"admin", "services", appname, "other"}, cbi(appname .. "/client/other", {autoapply = true}), _("Other Settings"), 92).leaf = true
-	if nixio.fs.access("/usr/sbin/haproxy") then
-		entry({"admin", "services", appname, "haproxy"}, cbi(appname .. "/client/haproxy"), _("Load Balancing"), 93).leaf = true
-	end
 	entry({"admin", "services", appname, "app_update"}, cbi(appname .. "/client/app_update"), _("App Update"), 95).leaf = true
 	entry({"admin", "services", appname, "rule"}, cbi(appname .. "/client/rule"), _("Rule Manage"), 96).leaf = true
 	entry({"admin", "services", appname, "rule_list"}, cbi(appname .. "/client/rule_list"), _("Rule List"), 97).leaf = true
@@ -44,8 +41,6 @@ function index()
 	entry({"admin", "services", appname, "get_log"}, call("get_log")).leaf = true
 	entry({"admin", "services", appname, "clear_log"}, call("clear_log")).leaf = true
 	entry({"admin", "services", appname, "index_status"}, call("index_status")).leaf = true
-	entry({"admin", "services", appname, "haproxy_status"}, call("haproxy_status")).leaf = true
-	entry({"admin", "services", appname, "connect_status"}, call("connect_status")).leaf = true
 	entry({"admin", "services", appname, "ping_node"}, call("ping_node")).leaf = true
 	entry({"admin", "services", appname, "urltest_node"}, call("urltest_node")).leaf = true
 	entry({"admin", "services", appname, "set_node"}, call("set_node")).leaf = true
@@ -119,54 +114,12 @@ end
 function index_status()
 	local e = {}
 	e.dns_mode_status = luci.sys.call("netstat -apn | grep ':15353 ' >/dev/null") == 0
-	e.haproxy_status = luci.sys.call(string.format("/bin/busybox top -bn1 | grep -v grep | grep '%s/bin/' | grep haproxy >/dev/null", appname)) == 0
 	e["tcp_node_status"] = luci.sys.call("/bin/busybox top -bn1 | grep -v 'grep' | grep '/tmp/etc/passwall/bin/' | grep 'default' | grep 'TCP' >/dev/null") == 0
 
 	if (uci:get(appname, "@global[0]", "udp_node") or "nil") == "tcp" then
 		e["udp_node_status"] = e["tcp_node_status"]
 	else
 		e["udp_node_status"] = luci.sys.call("/bin/busybox top -bn1 | grep -v 'grep' | grep '/tmp/etc/passwall/bin/' | grep 'default' | grep 'UDP' >/dev/null") == 0
-	end
-	luci.http.prepare_content("application/json")
-	luci.http.write_json(e)
-end
-
-function haproxy_status()
-	local e = luci.sys.call(string.format("/bin/busybox top -bn1 | grep -v grep | grep '%s/bin/' | grep haproxy >/dev/null", appname)) == 0
-	luci.http.prepare_content("application/json")
-	luci.http.write_json(e)
-end
-
-function connect_status()
-	local e = {}
-	e.use_time = ""
-	local url = luci.http.formvalue("url")
-	local baidu = string.find(url, "baidu")
-	local enabled = uci:get(appname, "@global[0]", "enabled") or "0"
-	local chn_list = uci:get(appname, "@global[0]", "chn_list") or "direct"
-	local gfw_list = uci:get(appname, "@global[0]", "use_gfw_list") or "1"
-	local proxy_mode = uci:get(appname, "@global[0]", "tcp_proxy_mode") or "proxy"
-	local socks_port = uci:get(appname, "@global[0]", "tcp_node_socks_port") or "1070"
-	local local_proxy = uci:get(appname, "@global[0]", "localhost_proxy") or "1"
-	if enabled == "1" and local_proxy == "0" then
-		if (chn_list == "proxy" and gfw_list == "0" and proxy_mode ~= "proxy" and baidu ~= nil) or (chn_list == "0" and gfw_list == "0" and proxy_mode == "proxy") then
-		-- 中国列表+百度 or 全局
-			url = "-x socks5h://127.0.0.1:" .. socks_port .. " " .. url
-		elseif baidu == nil then
-		-- 其他代理模式+百度以外网站
-			url = "-x socks5h://127.0.0.1:" .. socks_port .. " " .. url
-		end
-	end
-	local result = luci.sys.exec('curl --connect-timeout 3 -o /dev/null -I -sk -w "%{http_code}:%{time_appconnect}" ' .. url)
-	local code = tonumber(luci.sys.exec("echo -n '" .. result .. "' | awk -F ':' '{print $1}'") or "0")
-	if code ~= 0 then
-		local use_time = luci.sys.exec("echo -n '" .. result .. "' | awk -F ':' '{print $2}'")
-		if use_time:find("%.") then
-			e.use_time = string.format("%.2f", use_time * 1000)
-		else
-			e.use_time = string.format("%.2f", use_time / 1000)
-		end
-		e.ping_type = "curl"
 	end
 	luci.http.prepare_content("application/json")
 	luci.http.write_json(e)
@@ -244,9 +197,6 @@ function clear_all_nodes()
 	uci:set(appname, '@global[0]', "enabled", "0")
 	uci:set(appname, '@global[0]', "tcp_node", "nil")
 	uci:set(appname, '@global[0]', "udp_node", "nil")
-	uci:foreach(appname, "haproxy_config", function(t)
-		uci:delete(appname, t[".name"])
-	end)
 	uci:foreach(appname, "nodes", function(node)
 		uci:delete(appname, node['.name'])
 	end)
@@ -264,11 +214,6 @@ function delete_select_nodes()
 		if (uci:get(appname, "@global[0]", "udp_node") or "nil") == w then
 			uci:set(appname, '@global[0]', "udp_node", "nil")
 		end
-		uci:foreach(appname, "haproxy_config", function(t)
-			if t["lbss"] == w then
-				uci:delete(appname, t[".name"])
-			end
-		end)
 		uci:delete(appname, w)
 	end)
 	uci:commit(appname)

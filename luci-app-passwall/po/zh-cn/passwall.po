@@ -10,15 +10,6 @@ msgstr "运行中"
 msgid "NOT RUNNING"
 msgstr "未运行"
 
-msgid "Working..."
-msgstr "连接正常"
-
-msgid "Problem detected!"
-msgstr "连接失败"
-
-msgid "Touch Check"
-msgstr "点我检测"
-
 msgid "Kernel Unsupported"
 msgstr "内核不支持"
 
@@ -37,12 +28,6 @@ msgstr "节点列表"
 msgid "Other Settings"
 msgstr "高级设置"
 
-msgid "Load Balancing"
-msgstr "负载均衡"
-
-msgid "Enter interface"
-msgstr "进入界面"
-
 msgid "Rule Manage"
 msgstr "规则管理"
 
@@ -60,18 +45,6 @@ msgstr "节点配置"
 
 msgid "Running Status"
 msgstr "运行状态"
-
-msgid "Baidu Connection"
-msgstr "百度连接"
-
-msgid "Google Connection"
-msgstr "谷歌连接"
-
-msgid "GitHub Connection"
-msgstr "GitHub 连接"
-
-msgid "Instagram Connection"
-msgstr "Instagram 连接"
 
 msgid "Node Check"
 msgstr "节点检测"
@@ -652,42 +625,6 @@ msgstr "劫持ICMPv6 (IPv6 PING)"
 msgid "Sniffing"
 msgstr "流量嗅探"
 
-msgid "Enable Load Balancing"
-msgstr "开启负载均衡"
-
-msgid "Console Username"
-msgstr "控制台账号"
-
-msgid "Console Password"
-msgstr "控制台密码"
-
-msgid "Console Port"
-msgstr "控制台端口"
-
-msgid "In the browser input routing IP plus port access, such as:192.168.1.1:1188"
-msgstr "在浏览器输入路由IP加端口访问，如：192.168.1.1:1188"
-
-msgid "Haproxy Port"
-msgstr "负载均衡端口"
-
-msgid "Health Check Type"
-msgstr "健康检查类型"
-
-msgid "Inner implement"
-msgstr "内置实现"
-
-msgid "Health Check Inter"
-msgstr "健康检查节点间隔时间"
-
-msgid "When the URL test is used, the load balancing node will be converted into a Socks node. when node list set customizing, must be a Socks node, otherwise the health check will be invalid."
-msgstr "当使用 URL 测试时，负载均衡节点将转换成 Socks 节点。下面的节点列表自定义时必须为 Socks 节点，否则健康检查将无效。"
-
-msgid "Add a node, Export Of Multi WAN Only support Multi Wan. Load specific gravity range 1-256. Multiple primary servers can be load balanced, standby will only be enabled when the primary server is offline! Multiple groups can be set, Haproxy port same one for each group."
-msgstr "添加节点，指定出口功能是为多 WAN 用户准备的。负载比重范围 1-256。多个主服务器可以负载均衡，备用只有在主服务器离线时才会启用！可以设置多个组，负载均衡端口相同则为一组。"
-
-msgid "Note that the node configuration parameters for load balancing must be consistent when use TCP health check type, otherwise it cannot be used normally!"
-msgstr "注意，当使用 TCP 健康检查时负载均衡的节点配置参数必须一致，否则无法正常使用！"
-
 msgid "Node"
 msgstr "节点"
 
@@ -697,23 +634,11 @@ msgstr "节点地址"
 msgid "Node Port"
 msgstr "节点端口"
 
-msgid "Node Weight"
-msgstr "负载比重"
-
-msgid "Export Of Multi WAN"
-msgstr "多 WAN 指定出口"
-
 msgid "Main"
 msgstr "主要"
 
 msgid "Mode"
 msgstr "模式"
-
-msgid "Primary"
-msgstr "主要"
-
-msgid "Standby"
-msgstr "备用"
 
 msgid "Check update"
 msgstr "检查更新"

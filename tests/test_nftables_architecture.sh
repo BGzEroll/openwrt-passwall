@@ -25,7 +25,7 @@ run_case() {
 		export TCP_PROXY_DROP_PORTS=disable UDP_PROXY_DROP_PORTS=443
 		export USE_DIRECT_LIST=1 USE_PROXY_LIST=1 USE_BLOCK_LIST=1 USE_GFW_LIST=1
 		export CHN_LIST=direct TCP_PROXY_MODE=proxy UDP_PROXY_MODE=proxy
-		export ISP_DNS= ISP_DNS6= IPT_APPEND_DNS= haproxy_items=
+		export ISP_DNS= ISP_DNS6= IPT_APPEND_DNS=
 
 		nft() {
 			if [ "${TEST_REAL_NFT:-0}" = "1" ]; then

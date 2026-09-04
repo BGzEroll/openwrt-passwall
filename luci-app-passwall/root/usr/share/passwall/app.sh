@@ -1462,14 +1462,6 @@ delete_ip2route() {
 	}
 }
 
-start_haproxy() {
-	[ "$(config_t_get global_haproxy balancing_enable 0)" != "1" ] && return
-	haproxy_path=${TMP_PATH}/haproxy
-	haproxy_conf="config.cfg"
-	lua $APP_PATH/haproxy.lua -path ${haproxy_path} -conf ${haproxy_conf} -dns ${LOCAL_DNS}
-	ln_run "$(first_type haproxy)" haproxy "/dev/null" -f "${haproxy_path}/${haproxy_conf}"
-}
-
 kill_all() {
 	kill -9 $(pidof "$@") >/dev/null 2>&1
 }
@@ -1477,7 +1469,6 @@ kill_all() {
 
 start() {
 	ulimit -n 65535
-	start_haproxy
 	if [ -z "$(command -v fw4)" ] || [ -z "$(command -v nft)" ]; then
 		echolog "当前专用版本只支持 firewall4 + nftables，透明代理未启动。"
 		return 1

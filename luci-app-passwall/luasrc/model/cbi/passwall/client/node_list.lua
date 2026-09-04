@@ -37,11 +37,6 @@ function s.create(e, t)
 end
 
 function s.remove(e, t)
-	m.uci:foreach(appname, "haproxy_config", function(s)
-		if s["lbss"] and s["lbss"] == t then
-			m:del(s[".name"])
-		end
-	end)
 	TypedSection.remove(e, t)
 	local new_node = "nil"
 	local node0 = m:get("@nodes[0]") or nil
