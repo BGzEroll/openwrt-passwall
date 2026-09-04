@@ -1202,22 +1202,6 @@ local function update_node(manual)
 			end
 		end
 
-		--[[
-		for k, v in pairs(CONFIG) do
-			if type(v.new_nodes) == "table" and #v.new_nodes > 0 then
-				local new_node_list = ""
-				for kk, vv in pairs(v.new_nodes) do
-					new_node_list = new_node_list .. vv .. " "
-				end
-				if new_node_list ~= "" then
-					print(v.remarks, new_node_list)
-				end
-			else
-				print(v.remarks, v.newNodeId)
-			end
-		end
-		]]--
-
 		uci:commit(appname)
 	end
 

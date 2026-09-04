@@ -59,15 +59,6 @@ config_t_get() {
 	echo "${ret:=${3}}"
 }
 
-config_t_set() {
-	local index=${4:-0}
-	local ret=$(uci -q set "${CONFIG}.@${1}[${index}].${2}=${3}" 2>/dev/null)
-}
-
-get_enabled_anonymous_secs() {
-	uci -q show "${CONFIG}" | grep "${1}\[.*\.enabled='1'" | cut -d '.' -sf2
-}
-
 get_host_ip() {
 	local host=$2
 	local count=$3
@@ -87,18 +78,6 @@ get_host_ip() {
 		[ "$1" == "ipv6" ] && t=6
 		local vpsrip=$(resolveip -$t -t $count $host | awk 'NR==1{print}')
 		ip=$vpsrip
-	}
-	echo $ip
-}
-
-get_node_host_ip() {
-	local ip
-	local address=$(config_n_get $1 address)
-	[ -n "$address" ] && {
-		local use_ipv6=$(config_n_get $1 use_ipv6)
-		local network_type="ipv4"
-		[ "$use_ipv6" == "1" ] && network_type="ipv6"
-		ip=$(get_host_ip $network_type $address)
 	}
 	echo $ip
 }
@@ -175,18 +154,6 @@ get_first_dns() {
 	eval "hosts_foreach \"${__hosts_val}\" __first \"$@\""
 }
 
-get_last_dns() {
-	local __hosts_val=${1}; shift 1
-	local __first __last
-	__every() {
-		[ -z "${2}" ] && return 0
-		__last="${2}#${3}"
-		__first=${__first:-${__last}}
-	}
-	eval "hosts_foreach \"${__hosts_val}\" __every \"$@\""
-	[ "${__first}" ==  "${__last}" ] || echo "${__last}"
-}
-
 check_port_exists() {
 	port=$1
 	protocol=$2
@@ -260,14 +227,6 @@ eval_set_val() {
 	for i in $@; do
 		for j in $i; do
 			eval $j
-		done
-	done
-}
-
-eval_unset_val() {
-	for i in $@; do
-		for j in $i; do
-			eval unset j
 		done
 	done
 }

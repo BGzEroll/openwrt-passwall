@@ -820,34 +820,6 @@ function gen_config(var)
 
 		table.insert(dns.servers, _remote_dns)
 
-	--[[
-		local default_dns_flag = "remote"
-		if node_id and tcp_redir_port then
-			local node = uci:get_all(appname, node_id)
-			if node.protocol == "_shunt" then
-				if node.default_node == "_direct" then
-					default_dns_flag = "direct"
-				end
-			end
-		end
-
-		if dns.servers and #dns.servers > 0 then
-			local dns_servers = nil
-			for index, value in ipairs(dns.servers) do
-				if not dns_servers and value["_flag"] == default_dns_flag then
-					dns_servers = {
-						_flag = "default",
-						address = value.address,
-						port = value.port
-					}
-					break
-				end
-			end
-			if dns_servers then
-				table.insert(dns.servers, 1, dns_servers)
-			end
-		end
-	]]--
 		local dns_outbound_tag = "direct"
 		if dns_socks_address and dns_socks_port then
 			dns_outbound_tag = "out"

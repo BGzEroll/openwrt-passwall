@@ -130,15 +130,6 @@ function split(full, sep)
 	return {}
 end
 
-function is_exist(table, value)
-	for index, k in ipairs(table) do
-		if k == value then
-			return true
-		end
-	end
-	return false
-end
-
 function repeat_exist(table, value)
 	local count = 0
 	for index, k in ipairs(table) do
@@ -194,23 +185,11 @@ function get_function_args(arg)
 	return var
 end
 
-function strToTable(str)
-	if str == nil or type(str) ~= "string" then
-		return {}
-	end
-
-	return loadstring("return " .. str)()
-end
-
 function is_normal_node(e)
 	if e and e.type and e.protocol and (e.protocol == "_balancing" or e.protocol == "_shunt" or e.protocol == "_iface") then
 		return false
 	end
 	return true
-end
-
-function is_special_node(e)
-	return is_normal_node(e) == false
 end
 
 function is_ip(val)
@@ -262,19 +241,6 @@ function get_ipv6_full(val)
 		end
 	end
 	return result
-end
-
-function get_ip_type(val)
-	if is_ipv6(val) then
-		return "6"
-	elseif datatypes.ip4addr(val) then
-		return "4"
-	end
-	return ""
-end
-
-function is_mac(val)
-	return datatypes.macaddr(val)
 end
 
 function get_domain_from_url(url)
@@ -338,48 +304,6 @@ function get_valid_nodes()
 	return nodes
 end
 
-function get_node_remarks(n)
-	local remarks = ""
-	if n then
-		if n.protocol and (n.protocol == "_balancing" or n.protocol == "_shunt" or n.protocol == "_iface") then
-			remarks = "%s：[%s] " % {n.type .. " " .. i18n.translatef(n.protocol), n.remarks}
-		else
-			local type2 = n.type
-			if (n.type == "sing-box" or n.type == "Xray") and n.protocol then
-				local protocol = n.protocol
-				if protocol == "vmess" then
-					protocol = "VMess"
-				elseif protocol == "vless" then
-					protocol = "VLESS"
-				else
-					protocol = protocol:gsub("^%l",string.upper)
-				end
-				type2 = type2 .. " " .. protocol
-			end
-			remarks = "%s：[%s]" % {type2, n.remarks}
-		end
-	end
-	return remarks
-end
-
-function get_full_node_remarks(n)
-	local remarks = get_node_remarks(n)
-	if #remarks > 0 then
-		if n.address and n.port then
-			remarks = remarks .. " " .. n.address .. ":" .. n.port
-		end
-	end
-	return remarks
-end
-
-function gen_uuid(format)
-	local uuid = sys.exec("echo -n $(cat /proc/sys/kernel/random/uuid)")
-	if format == nil then
-		uuid = string.gsub(uuid, "-", "")
-	end
-	return uuid
-end
-
 function gen_short_uuid()
 	return sys.exec("echo -n $(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)")
 end
@@ -392,24 +316,12 @@ function uci_get_type(type, config, default)
 	return value
 end
 
-function uci_get_type_id(id, config, default)
-	local value = uci:get(appname, id, config, default) or sys.exec("echo -n $(uci -q get " .. appname .. "." .. id .. "." .. config .. ")")
-	if (value == nil or value == "") and (default and default ~= "") then
-		value = default
-	end
-	return value
-end
-
 local function chmod_755(file)
 	if file and file ~= "" then
 		if not fs.access(file, "rwx", "rx", "rx") then
 			fs.chmod(file, 755)
 		end
 	end
-end
-
-function get_customed_path(e)
-	return uci_get_type("global_app", e .. "_file")
 end
 
 function finded_com(e)
@@ -477,15 +389,6 @@ end
 function get_app_version(app_name, file)
 	if file == nil then file = get_app_path(app_name) end
 	return get_bin_version_cache(file, com[app_name].cmd_version)
-end
-
-local function is_file(path)
-	if path and #path > 1 then
-		if sys.exec('[ -f "%s" ] && echo -n 1' % path) == "1" then
-			return true
-		end
-	end
-	return nil
 end
 
 local function is_dir(path)

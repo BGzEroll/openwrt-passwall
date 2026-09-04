@@ -33,21 +33,6 @@ o.rmempty = true
 o.default = ""
 o.rewrite_option = o.option
 
---[[
--- Tuic username for local socks connect
-o = s:option(Value, option_name("socks_username"), translate("TUIC UserName For Local Socks"))
-o.rmempty = true
-o.default = ""
-o.rewrite_option = o.option
-
--- Tuic Password for local socks connect
-o = s:option(Value, option_name("socks_password"), translate("TUIC Password For Local Socks"))
-o.password = true
-o.rmempty = true
-o.default = ""
-o.rewrite_option = o.option
---]]
-
 o = s:option(Value, option_name("ip"), translate("Set the TUIC proxy server ip address"))
 o.datatype = "ipaddr"
 o.rmempty = true

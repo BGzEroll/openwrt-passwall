@@ -301,11 +301,6 @@ if singbox_tags:find("with_quic") then
 	o:value("quic", translate("QUIC"))
 	o:depends({ [option_name("protocol")] = "tuic" })
 
-	--[[
-	o = s:option(Flag, option_name("tuic_udp_over_stream"), translate("UDP over stream"))
-	o:depends({ [option_name("protocol")] = "tuic" })
-	]]--
-
 	o = s:option(Flag, option_name("tuic_zero_rtt_handshake"), translate("Enable 0-RTT QUIC handshake"))
 	o.default = 0
 	o:depends({ [option_name("protocol")] = "tuic" })
