@@ -111,7 +111,7 @@ TCP 不再进入 NAT REDIRECT 透明代理链。NAT `redirect` 动作仍由全�
 - LuCI 的 REDIRECT/TPROXY 选择器；
 - 客户端 iptables/ipset 后端选择和实现。
 
-旧 UCI `tcp_proxy_way=redirect` 不会阻止启动。运行时打印废弃提示并强制按 TPROXY 处理。`tcp_redir_ports`/`udp_redir_ports` 仍作为第一阶段兼容 key，UI 已显示为 Proxy Ports。
+客户端透明代理固定使用 TPROXY 和 nftables。`tcp_redir_ports`/`udp_redir_ports` 是实际使用的配置 key，UI 显示为 Proxy Ports。
 
 ## 5. 新 TCP/UDP 数据路径
 
@@ -325,29 +325,13 @@ LAN 地址不再依赖旧 `/tmp/state network.lan.ifname`。实现从 firewall �
 - 规则更新时的 iptables/nftables 分支；
 - 代理配置生成器中的 TCP redirect 参数和 inbound。
 
-## 19. 旧 UCI key 处理
+## 19. 当前 UCI key
 
-继续消费但改名展示：
+端口策略使用：
 
 - `tcp_no_redir_ports`、`udp_no_redir_ports`；
 - `tcp_redir_ports`、`udp_redir_ports`；
 - `tcp_proxy_drop_ports`、`udp_proxy_drop_ports`。
-
-兼容读取：
-
-- `tcp_proxy_way`：非 `tproxy` 时仅提示，运行时仍强制 TPROXY；
-- `use_nft`：不再用于选择客户端后端，固定 nftables。
-
-普通 ACL 中以下历史字段被 backend 忽略，不自动迁移，也不影响启动：
-
-```text
-tcp_node / udp_node / use_global_config
-use_direct_list / use_proxy_list / use_block_list / use_gfw_list / chn_list
-tcp_proxy_mode / udp_proxy_mode
-dns_shunt / filter_proxy_ipv6 / dns_mode / xray_dns_mode / singbox_dns_mode
-remote_dns / remote_dns_doh 等 ACL DNS 字段
-非 MAC sources
-```
 
 ## 20. 测试与当前证据
 
@@ -431,7 +415,7 @@ pgrep -af 'xray|sing-box|hysteria|ss-redir|ipt2socks'
 | 17 | flow offload | 第 16 节 |
 | 18 | 节点防回环 | 第 15 节 |
 | 19 | dead code | 第 18 节 |
-| 20 | 旧 UCI key | 第 19 节 |
+| 20 | 当前配置 key | 第 19 节 |
 | 21 | 语法测试 | 第 20 节 |
 | 22 | nftables 逻辑测试 | 第 20 节 |
 | 23 | 风险/TODO | 第 21 节 |

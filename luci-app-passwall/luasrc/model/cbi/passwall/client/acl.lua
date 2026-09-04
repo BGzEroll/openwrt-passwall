@@ -4,13 +4,6 @@ local sys = api.sys
 
 m = Map(appname)
 
-s = m:section(TypedSection, "global", translate("ACLs"))
-s.anonymous = true
-
-o = s:option(Flag, "acl_enable", translate("Main switch"))
-o.rmempty = false
-o.default = false
-
 -- [[ ACLs Settings ]]--
 s = m:section(TypedSection, "acl_rule")
 s.template = "cbi/tblsection"

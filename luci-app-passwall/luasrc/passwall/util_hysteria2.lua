@@ -3,33 +3,6 @@ local api = require "luci.passwall.api"
 local uci = api.uci
 local jsonc = api.jsonc
 
-function gen_config_server(node)
-	local config = {
-		listen = ":" .. node.port,
-		tls = {
-			cert = node.tls_certificateFile,
-			key = node.tls_keyFile,
-		},
-		obfs = (node.hysteria2_obfs) and {
-			type = "salamander",
-			salamander = {
-				password = node.hysteria2_obfs
-			}
-		} or nil,
-		auth = {
-			type = "password",
-			password = node.hysteria2_auth_password
-		},
-		bandwidth = (node.hysteria2_up_mbps or node.hysteria2_down_mbps) and {
-			up = node.hysteria2_up_mbps and node.hysteria2_up_mbps .. " mbps" or nil,
-			down = node.hysteria2_down_mbps and node.hysteria2_down_mbps .. " mbps" or nil
-		} or nil,
-		ignoreClientBandwidth = (node.hysteria2_ignoreClientBandwidth == "1") and true or false,
-		disableUDP = (node.hysteria2_udp == "0") and true or false,
-	}
-	return config
-end
-
 function gen_config(var)
 	local node_id = var["-node"]
 	if not node_id then

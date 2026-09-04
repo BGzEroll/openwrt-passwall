@@ -94,12 +94,6 @@ msgstr "UDP 节点"
 msgid "Edit Current Node"
 msgstr "编辑当前节点"
 
-msgid "Socks Config"
-msgstr "Socks 配置"
-
-msgid "Socks Node"
-msgstr "Socks 节点"
-
 msgid "Listen Port"
 msgstr "监听端口"
 
@@ -108,9 +102,6 @@ msgstr "0 为不使用"
 
 msgid "Same as the tcp node"
 msgstr "与 TCP 节点相同"
-
-msgid "Current node: %s"
-msgstr "当前节点：%s"
 
 msgid "Filter Mode"
 msgstr "过滤模式"
@@ -214,45 +205,6 @@ msgstr "清空 NFTSET"
 msgid "Try this feature if the rule modification does not take effect."
 msgstr "如果修改规则后没有生效，请尝试此功能。"
 
-msgid "Are you sure to reset?"
-msgstr "你确定要恢复吗？"
-
-msgid "Are you sure to hide?"
-msgstr "你确定要隐藏吗？"
-
-msgid "DNS related issues:"
-msgstr "DNS 相关问题："
-
-msgid "Certain browsers such as Chrome have built-in DNS service, which may affect DNS resolution settings. You can go to 'Settings -> Privacy and security -> Use secure DNS' menu to turn it off."
-msgstr "某些浏览器如 Chrome 等内置此功能，这会影响设置的 DNS 解析。您可以进入 '设置->私隐和安全->使用安全 DNS' 菜单,将其关闭。"
-
-msgid "If you are unable to access the internet after reboot, please try clearing the cache of your terminal devices (make sure to close all open browser application windows first, this step is especially important):"
-msgstr "如果在重启后无法上网，请尝试清除终端设备的缓存（先关闭所有正在使用的浏览器应用程序，这一步尤其重要）："
-
-msgid "For Windows systems, open Command Prompt and run the command 'ipconfig /flushdns'."
-msgstr "对于Windows系统，请在命令提示符中运行命令 'ipconfig /flushdns'."
-
-msgid "For Mac systems, open Terminal and run the command 'sudo killall -HUP mDNSResponder'."
-msgstr "对于Mac系统，在终端中运行命令 'sudo killall -HUP mDNSResponder'."
-
-msgid "For mobile devices, you can clear it by reconnecting to the network, such as toggling Airplane Mode and reconnecting to WiFi."
-msgstr "对于移动设备，可通过重新接入网络的方式清除。比如开关一次飞行模式，重新连接 WiFi。"
-
-msgid "Please make sure your device's network settings point both the DNS server and default gateway to this router, to ensure DNS queries are properly routed."
-msgstr "请确认您设备的网络设置，客户端 DNS 服务器和默认网关应均指向本路由器，以确保 DNS 查询正确路由。"
-
-msgid "Restore to default configuration:"
-msgstr "恢复默认配置："
-
-msgid "Browser access:"
-msgstr "浏览器访问："
-
-msgid "Hide in main menu:"
-msgstr "在主菜单中隐藏："
-
-msgid "Show in main menu:"
-msgstr "在主菜单中显示："
-
 msgid "DNS Export Of Multi WAN"
 msgstr "国内 DNS 指定解析出口"
 
@@ -312,15 +264,6 @@ msgstr "路由器本机代理"
 
 msgid "When selected, localhost can transparent proxy."
 msgstr "当勾选时，路由器本机可以透明代理。"
-
-msgid "Client Proxy"
-msgstr "客户端代理"
-
-msgid "When selected, devices in LAN can transparent proxy. Otherwise, it will not be proxy. But you can still use access control to allow the designated device to proxy."
-msgstr "当勾选时，局域网内的设备可以透明代理。否则，将不代理。但您仍然可以使用访问控制允许指定的设备代理。"
-
-msgid "Want different devices to use different proxy modes/ports/nodes? Please use access control."
-msgstr "希望不同设备使用不同的代理模式/端口/节点？请使用访问控制。"
 
 msgid "Operation"
 msgstr "操作"
@@ -709,60 +652,6 @@ msgstr "劫持ICMPv6 (IPv6 PING)"
 msgid "Sniffing"
 msgstr "流量嗅探"
 
-msgid "TCP Proxy Way"
-msgstr "TCP 代理方式"
-
-msgid "Proxy Settings"
-msgstr "代理配置"
-
-msgid "Auto Switch"
-msgstr "自动切换"
-
-msgid "How often to test"
-msgstr "多久检测一次"
-
-msgid "Timeout seconds"
-msgstr "超时秒数"
-
-msgid "Timeout retry num"
-msgstr "超时重试次数"
-
-msgid "Main node"
-msgstr "主节点"
-
-msgid "List of backup nodes"
-msgstr "备用节点的列表"
-
-msgid "Restore Switch"
-msgstr "恢复切换"
-
-msgid "When detects main node is available, switch back to the main node."
-msgstr "当检测到主节点可用时，切换回主节点。"
-
-msgid "If the main node is V2ray/Xray shunt"
-msgstr "如果主节点是 V2ray/Xray 分流"
-
-msgid "Switch it"
-msgstr "切掉它"
-
-msgid "Applying to the default node"
-msgstr "应用于默认节点"
-
-msgid "Applying to the preproxy node"
-msgstr "应用于前置代理节点"
-
-msgid "Add nodes to the standby node list by keywords"
-msgstr "通过关键字添加节点到备用节点列表"
-
-msgid "Delete nodes in the standby node list by keywords"
-msgstr "通过关键字删除备用节点列表的节点"
-
-msgid "Please enter the node keyword, pay attention to distinguish between spaces, uppercase and lowercase."
-msgstr "请输入节点关键字，注意区分空格、大写和小写。"
-
-msgid "Configure this node with 127.0.0.1: this port"
-msgstr "使用 127.0.0.1 和此端口配置节点"
-
 msgid "Enable Load Balancing"
 msgstr "开启负载均衡"
 
@@ -1057,11 +946,8 @@ msgstr "TCP 代理端口"
 msgid "UDP Proxy Ports"
 msgstr "UDP 代理端口"
 
-msgid "The historical UCI key is retained, but TCP transparent proxying is TPROXY-only."
-msgstr "保留历史 UCI 配置键，但 TCP 透明代理仅使用 TPROXY。"
-
-msgid "ACLs is a tools which used to designate specific IP proxy mode."
-msgstr "访问控制列表是用于指定特殊 IP 代理模式的工具。"
+msgid "TCP transparent proxying uses TPROXY."
+msgstr "TCP 透明代理使用 TPROXY。"
 
 msgid "Example:"
 msgstr "例："
@@ -1342,15 +1228,6 @@ msgstr "账号和密码必须同时使用！"
 msgid "Node Number"
 msgstr "节点数量"
 
-msgid "You can only set up a maximum of %s nodes for the time being, Used for access control."
-msgstr "目前最多只能设置 %s 个节点，用于给访问控制使用。"
-
-msgid "IPv6 TProxy"
-msgstr "IPv6 透明代理(TProxy)"
-
-msgid "Experimental feature. Make sure that your node supports IPv6."
-msgstr "实验特性，请确保你的节点支持IPv6"
-
 msgid "Status info"
 msgstr "状态信息"
 
@@ -1428,15 +1305,6 @@ msgstr "找不到这个文件！"
 
 msgid "Public key and Private key path can not be empty!"
 msgstr "公钥和私钥文件路径不能为空！"
-
-msgid "Server-Side"
-msgstr "服务器端"
-
-msgid "Server Config"
-msgstr "服务器配置"
-
-msgid "Users Manager"
-msgstr "用户管理"
 
 msgid "Logs"
 msgstr "日志"

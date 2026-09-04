@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 NFTABLE_NAME="inet passwall"
@@ -392,7 +392,7 @@ add_port_policy() {
 }
 
 valid_macs_csv() {
-	local item mac separator
+	local item mac separator=""
 	for item in $1; do
 		if echo "$item" | grep -Eiq '^([0-9a-f]{2}:){5}[0-9a-f]{2}$'; then
 			mac=$(echo "$item" | tr 'a-f' 'A-F')
@@ -420,7 +420,7 @@ acl_value() {
 }
 
 setup_acl() {
-	[ "$ENABLED_ACLS" = "1" ] || return 0
+	[ "${ENABLED:-0}" = "1" ] || return 0
 	local sid sources direct remarks macs mac_csv chain
 
 	# Aggregate every Direct ACL first. This gives Direct priority even if the
@@ -440,7 +440,7 @@ setup_acl() {
 		sources=$(config_n_get "$sid" sources)
 		macs=$(mac_match "$sources")
 		[ -n "$macs" ] || {
-			echolog "  - ACL[$sid] 未包含有效 MAC，旧 IP/CIDR/range/ipset source 已忽略。"
+			echolog "  - ACL[$sid] 未包含有效 MAC，非 MAC source 已忽略。"
 			continue
 		}
 		chain="PSW_ACL_$(echo "$sid" | tr -cd 'A-Za-z0-9_')"
@@ -738,7 +738,7 @@ gen_include() {
 }
 
 start() {
-	[ "$ENABLED_DEFAULT_ACL" = "0" ] && [ "$ENABLED_ACLS" = "0" ] && return 0
+	[ "$ENABLED_DEFAULT_ACL" = "0" ] && [ "${ENABLED:-0}" = "0" ] && return 0
 	add_firewall_rule
 	gen_include
 }

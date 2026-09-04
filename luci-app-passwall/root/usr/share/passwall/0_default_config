@@ -18,7 +18,6 @@ config global
 	option tcp_proxy_mode 'proxy'
 	option udp_proxy_mode 'proxy'
 	option localhost_proxy '0'
-	option acl_enable '0'
 	option log_tcp '0'
 	option log_udp '0'
 	option loglevel 'error'
@@ -41,8 +40,6 @@ config global_forwarding
 	option udp_redir_ports '1:65535'
 	option accept_icmp '1'
 	option accept_icmpv6 '1'
-	option use_nft '1'
-	option tcp_proxy_way 'tproxy'
 
 config global_xray
 	option sniffing_override_dest '0'

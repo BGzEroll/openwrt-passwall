@@ -27,7 +27,6 @@ DEFAULT_DNS=
 IPT_APPEND_DNS=
 ENABLED_DEFAULT_ACL=0
 PROXY_IPV6=0
-PROXY_IPV6_UDP=0
 resolve_dns=0
 use_tcp_node_resolve_dns=0
 use_udp_node_resolve_dns=0
@@ -512,12 +511,8 @@ run_chinadns_ng() {
 		hosts_foreach "servers" host_from_url | grep '[a-zA-Z]$' | sort -u > "${TMP_PATH}/vpslist"
 	}
 	[ -s "${TMP_PATH}/vpslist" ] && {
-		local vpslist4_set="passwall_vpslist"
-		local vpslist6_set="passwall_vpslist6"
-		[ "$nftflag" = "1" ] && {
-			vpslist4_set="inet@passwall@${vpslist4_set}"
-			vpslist6_set="inet@passwall@${vpslist6_set}"
-		}
+		local vpslist4_set="inet@passwall@passwall_vpslist"
+		local vpslist6_set="inet@passwall@passwall_vpslist6"
 		cat <<-EOF >> ${_CONF_FILE}
 			group vpslist
 			group-dnl ${TMP_PATH}/vpslist
@@ -527,12 +522,8 @@ run_chinadns_ng() {
 	}
 
 	[ "${_use_direct_list}" = "1" ] && [ -s "${RULES_PATH}/direct_host" ] && {
-		local whitelist4_set="passwall_whitelist"
-		local whitelist6_set="passwall_whitelist6"
-		[ "$nftflag" = "1" ] && {
-			whitelist4_set="inet@passwall@${whitelist4_set}"
-			whitelist6_set="inet@passwall@${whitelist6_set}"
-		}
+		local whitelist4_set="inet@passwall@passwall_whitelist"
+		local whitelist6_set="inet@passwall@passwall_whitelist6"
 		cat <<-EOF >> ${_CONF_FILE}
 			group directlist
 			group-dnl ${RULES_PATH}/direct_host
@@ -542,12 +533,8 @@ run_chinadns_ng() {
 	}
 
 	[ "${_use_proxy_list}" = "1" ] && [ -s "${RULES_PATH}/proxy_host" ] && {
-		local blacklist4_set="passwall_blacklist"
-		local blacklist6_set="passwall_blacklist6"
-		[ "$nftflag" = "1" ] && {
-			blacklist4_set="inet@passwall@${blacklist4_set}"
-			blacklist6_set="inet@passwall@${blacklist6_set}"
-		}
+		local blacklist4_set="inet@passwall@passwall_blacklist"
+		local blacklist6_set="inet@passwall@passwall_blacklist6"
 		cat <<-EOF >> ${_CONF_FILE}
 			group proxylist
 			group-dnl ${RULES_PATH}/proxy_host
@@ -558,12 +545,8 @@ run_chinadns_ng() {
 	}
 
 	[ "${_gfwlist}" = "1" ] && [ -s "${RULES_PATH}/gfwlist" ] && {
-		local gfwlist4_set="passwall_gfwlist"
-		local gfwlist6_set="passwall_gfwlist6"
-		[ "$nftflag" = "1" ] && {
-			gfwlist4_set="inet@passwall@${gfwlist4_set}"
-			gfwlist6_set="inet@passwall@${gfwlist6_set}"
-		}
+		local gfwlist4_set="inet@passwall@passwall_gfwlist"
+		local gfwlist6_set="inet@passwall@passwall_gfwlist6"
 		cat <<-EOF >> ${_CONF_FILE}
 			gfwlist-file ${RULES_PATH}/gfwlist
 			add-taggfw-ip ${gfwlist4_set},${gfwlist6_set}
@@ -572,12 +555,8 @@ run_chinadns_ng() {
 	}
 
 	[ "${_chnlist}" != "0" ] && [ -s "${RULES_PATH}/chnlist" ] && {
-		local chnroute4_set="passwall_chnroute"
-		local chnroute6_set="passwall_chnroute6"
-		[ "$nftflag" = "1" ] && {
-			chnroute4_set="inet@passwall@${chnroute4_set}"
-			chnroute6_set="inet@passwall@${chnroute6_set}"
-		}
+		local chnroute4_set="inet@passwall@passwall_chnroute"
+		local chnroute6_set="inet@passwall@passwall_chnroute6"
 
 		[ "${_chnlist}" = "direct" ] && {
 			cat <<-EOF >> ${_CONF_FILE}
@@ -849,7 +828,6 @@ run_redir() {
 		tcp_node_socks_port=$(get_new_port $(config_t_get global tcp_node_socks_port 1070))
 		tcp_node_http_port=$(config_t_get global tcp_node_http_port 0)
 		[ "$tcp_node_http_port" != "0" ] && tcp_node_http=1
-		PROXY_IPV6_UDP=1
 
 			can_ipt=$(echo "$TPROXY_LIST" | grep "$type")
 		[ -z "$can_ipt" ] && type="socks"
@@ -1156,7 +1134,7 @@ clean_crontab() {
 }
 
 start_crontab() {
-	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED_ACLS" == 1 ]; then
+	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED" == 1 ]; then
 		start_daemon=$(config_t_get global_delay start_daemon 0)
 		[ "$start_daemon" = "1" ] && $APP_PATH/monitor.sh > /dev/null 2>&1 &
 	fi
@@ -1236,7 +1214,7 @@ start_crontab() {
 		rm -rf $TMP_SUB_PATH
 	}
 
-	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED_ACLS" == 1 ]; then
+	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED" == 1 ]; then
 		[ "$update_loop" = "1" ] && {
 			$APP_PATH/tasks.sh > /dev/null 2>&1 &
 			echolog "自动更新：启动循环更新进程。"
@@ -1446,7 +1424,7 @@ start_dns() {
 		-DNSMASQ_CONF_FILE "/tmp/dnsmasq.d/dnsmasq-passwall.conf" -DEFAULT_DNS ${DEFAULT_DNS} -LOCAL_DNS ${LOCAL_DNS} \
 		-TUN_DNS ${TUN_DNS} -REMOTE_FAKEDNS ${fakedns:-0} -USE_DEFAULT_DNS "${USE_DEFAULT_DNS:-direct}" -CHINADNS_DNS ${china_ng_listen:-0} \
 		-USE_DIRECT_LIST "${USE_DIRECT_LIST}" -USE_PROXY_LIST "${USE_PROXY_LIST}" -USE_BLOCK_LIST "${USE_BLOCK_LIST}" -USE_GFW_LIST "${USE_GFW_LIST}" -CHN_LIST "${CHN_LIST}" \
-		-TCP_NODE ${TCP_NODE} -DEFAULT_PROXY_MODE ${TCP_PROXY_MODE} -NO_PROXY_IPV6 ${DNSMASQ_FILTER_PROXY_IPV6:-0} -NFTFLAG ${nftflag:-0} \
+		-TCP_NODE ${TCP_NODE} -DEFAULT_PROXY_MODE ${TCP_PROXY_MODE} -NO_PROXY_IPV6 ${DNSMASQ_FILTER_PROXY_IPV6:-0} \
 		-NO_LOGIC_LOG ${NO_LOGIC_LOG:-0}
 }
 
@@ -1500,7 +1478,6 @@ kill_all() {
 start() {
 	ulimit -n 65535
 	start_haproxy
-	nftflag=1
 	if [ -z "$(command -v fw4)" ] || [ -z "$(command -v nft)" ]; then
 		echolog "当前专用版本只支持 firewall4 + nftables，透明代理未启动。"
 		return 1
@@ -1558,10 +1535,6 @@ TCP_UDP=0
 	[ "$TCP_NODE" != "nil" ] && [ "$(config_get_type $TCP_NODE nil)" != "nil" ] && ENABLED_DEFAULT_ACL=1
 	[ "$UDP_NODE" != "nil" ] && [ "$(config_get_type $UDP_NODE nil)" != "nil" ] && ENABLED_DEFAULT_ACL=1
 }
-ENABLED_ACLS=$(config_t_get global acl_enable 0)
-
-legacy_proxy_way=$(config_t_get global_forwarding tcp_proxy_way tproxy)
-[ "$legacy_proxy_way" != "tproxy" ] && echolog "检测到已废弃的 tcp_proxy_way=$legacy_proxy_way，本次运行强制使用 TPROXY。"
 PROXY_IPV6=1
 TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports '1:65535')
 UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
@@ -1595,7 +1568,6 @@ RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
 ISP_DNS=$(cat $RESOLVFILE 2>/dev/null | grep -E -o "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | sort -u | grep -v 0.0.0.0 | grep -v 127.0.0.1)
 ISP_DNS6=$(cat $RESOLVFILE 2>/dev/null | grep -E "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}" | awk -F % '{print $1}' | awk -F " " '{print $2}'| sort -u | grep -v -Fx ::1 | grep -v -Fx ::)
 
-DEFAULT_DNSMASQ_CFGID=$(uci show dhcp.@dnsmasq[0] |  awk -F '.' '{print $2}' | awk -F '=' '{print $1}'| head -1)
 DEFAULT_DNS=$(uci show dhcp.@dnsmasq[0] | grep "\.server=" | awk -F '=' '{print $2}' | sed "s/'//g" | tr ' ' '\n' | grep -v "\/" | head -2 | sed ':label;N;s/\n/,/;b label')
 [ -z "${DEFAULT_DNS}" ] && [ "$(echo $ISP_DNS | tr ' ' '\n' | wc -l)" -le 2 ] && DEFAULT_DNS=$(echo -n $ISP_DNS | tr ' ' '\n' | head -2 | tr '\n' ',')
 LOCAL_DNS="${DEFAULT_DNS:-119.29.29.29,223.5.5.5}"

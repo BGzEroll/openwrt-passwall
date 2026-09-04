@@ -110,7 +110,7 @@ add_port_option("tcp_proxy_drop_ports", translate("TCP Proxy Drop Ports"), "tcp_
 add_port_option("udp_proxy_drop_ports", translate("UDP Proxy Drop Ports"), "udp_proxy_drop_ports",
 	translate("Drop only when the shared Global Policy classifies the destination as PROXY."), { "443" })
 add_port_option("tcp_redir_ports", translate("TCP Proxy Ports"), "tcp_redir_ports",
-	translate("The historical UCI key is retained, but TCP transparent proxying is TPROXY-only."),
+	translate("TCP transparent proxying uses TPROXY."),
 	{ "1:65535", "80,443", "80:65535", "1:443" })
 add_port_option("udp_redir_ports", translate("UDP Proxy Ports"), "udp_redir_ports", nil,
 	{ "1:65535", "53" })

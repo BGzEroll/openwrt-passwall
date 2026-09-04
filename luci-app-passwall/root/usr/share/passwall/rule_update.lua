@@ -36,7 +36,6 @@ local chnlist_url = ucic:get(name, "@global_rules[0]", "chnlist_url") or {"https
 local geoip_api =  "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
 local geosite_api =  "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
 local asset_location = ucic:get_first(name, 'global_rules', "v2ray_location_asset", "/usr/share/v2ray/")
-local use_nft = "1"
 if arg3 == "cron" then
 	arg2 = nil
 end
@@ -65,7 +64,7 @@ local function gen_nftset(set_name, ip_type, tmp_file, input_file)
 	end
 	nft_file:write(string.format('add element %s %s $%s\n', nftable_name, set_name, set_name))
 	nft_file:close()
-	luci.sys.call(string.format('nft -f %s &>/dev/null',tmp_file))
+	luci.sys.call(string.format('nft -f %s >/dev/null 2>&1', tmp_file))
 	os.remove(tmp_file)
 end
 
@@ -233,7 +232,7 @@ local function fetch_rule(rule_name,rule_type,url,exclude_domain)
 		local new_md5 = luci.sys.exec("echo -n $([ -f '" ..file_tmp.. "' ] && md5sum " ..file_tmp.." | awk '{print $1}')")
 		if old_md5 ~= new_md5 then
 			local count = line_count(file_tmp)
-			if use_nft == "1" and (rule_type == "ip6" or rule_type == "ip4") then
+			if rule_type == "ip6" or rule_type == "ip4" then
 				local set_name = "passwall_" ..rule_name
 				local output_file = file_tmp.. ".nft"
 				if rule_type == "ip4" then

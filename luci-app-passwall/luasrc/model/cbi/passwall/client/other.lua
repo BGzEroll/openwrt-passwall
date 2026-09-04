@@ -90,7 +90,7 @@ o:value("disable", translate("No patterns are used"))
 o:value("443", translate("QUIC"))
 o.validate = port_validate
 
----- TCP Proxy Ports (the UCI key is retained for compatibility)
+---- TCP Proxy Ports
 o = s:option(Value, "tcp_redir_ports", translate("TCP Proxy Ports"))
 o.default = "1:65535"
 o:value("1:65535", translate("All"))
@@ -98,7 +98,7 @@ o:value("22,25,53,143,465,587,853,993,995,80,443", translate("Common Use"))
 o:value("80,443", translate("Only Web"))
 o.validate = port_validate
 
----- UDP Proxy Ports (the UCI key is retained for compatibility)
+---- UDP Proxy Ports
 o = s:option(Value, "udp_redir_ports", translate("UDP Proxy Ports"))
 o.default = "1:65535"
 o:value("1:65535", translate("All"))

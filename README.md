@@ -871,7 +871,7 @@ firewall4 / nftables
 dnsmasq 2.90-2（启用 nftset）
 ```
 
-旧配置中的 `use_nft=0` 不再选择 iptables；`tcp_proxy_way=redirect` 会在运行时按 TPROXY 处理并记录废弃提示。
+客户端透明代理固定使用 TPROXY 与 nftables。
 
 ---
 

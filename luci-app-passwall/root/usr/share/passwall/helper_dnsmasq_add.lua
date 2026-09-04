@@ -21,7 +21,6 @@ local CHN_LIST = var["-CHN_LIST"]
 local DEFAULT_PROXY_MODE = var["-DEFAULT_PROXY_MODE"]
 local NO_PROXY_IPV6 = var["-NO_PROXY_IPV6"]
 local NO_LOGIC_LOG = var["-NO_LOGIC_LOG"]
-local NFTFLAG = var["-NFTFLAG"]
 local CACHE_PATH = api.CACHE_PATH
 local CACHE_FLAG = "dnsmasq_" .. FLAG
 local CACHE_DNS_PATH = CACHE_PATH .. "/" .. CACHE_FLAG
@@ -151,7 +150,7 @@ end
 local cache_text = ""
 local nodes_address_md5 = luci.sys.exec("echo -n $(uci show passwall | grep '\\.address') | md5sum")
 local new_rules = luci.sys.exec("echo -n $(find /usr/share/passwall/rules -type f | xargs md5sum)")
-local new_text = TMP_DNSMASQ_PATH .. DNSMASQ_CONF_FILE .. DEFAULT_DNS .. LOCAL_DNS .. TUN_DNS .. REMOTE_FAKEDNS .. USE_DEFAULT_DNS .. CHINADNS_DNS .. USE_DIRECT_LIST .. USE_PROXY_LIST .. USE_BLOCK_LIST .. USE_GFW_LIST .. CHN_LIST .. DEFAULT_PROXY_MODE .. NO_PROXY_IPV6 .. nodes_address_md5 .. new_rules .. NFTFLAG
+local new_text = TMP_DNSMASQ_PATH .. DNSMASQ_CONF_FILE .. DEFAULT_DNS .. LOCAL_DNS .. TUN_DNS .. REMOTE_FAKEDNS .. USE_DEFAULT_DNS .. CHINADNS_DNS .. USE_DIRECT_LIST .. USE_PROXY_LIST .. USE_BLOCK_LIST .. USE_GFW_LIST .. CHN_LIST .. DEFAULT_PROXY_MODE .. NO_PROXY_IPV6 .. nodes_address_md5 .. new_rules
 if fs.access(CACHE_TEXT_FILE) then
 	for line in io.lines(CACHE_TEXT_FILE) do
 		cache_text = line
@@ -185,8 +184,8 @@ if USE_DEFAULT_DNS == "chinadns_ng" and CHINADNS_DNS ~= "0" then
 	dnsmasq_default_dns = CHINADNS_DNS
 end
 
-local setflag_4= (NFTFLAG == "1") and "4#inet#passwall#" or ""
-local setflag_6= (NFTFLAG == "1") and "6#inet#passwall#" or ""
+local setflag_4 = "4#inet#passwall#"
+local setflag_6 = "6#inet#passwall#"
 
 if not fs.access(CACHE_DNS_PATH) then
 	fs.mkdir("/tmp/dnsmasq.d")
@@ -417,10 +416,7 @@ if not fs.access(CACHE_DNS_PATH) then
 		local address_out = io.open(CACHE_DNS_PATH .. "/000-address.conf", "a")
 		local server_out = io.open(CACHE_DNS_PATH .. "/001-server.conf", "a")
 		local ipset_out = io.open(CACHE_DNS_PATH .. "/ipset.conf", "a")
-		local set_name = "ipset"
-		if NFTFLAG == "1" then
-			set_name = "nftset"
-		end
+		local set_name = "nftset"
 		for key, value in pairs(list1) do
 			if value.address then
 				local domain = "." .. key

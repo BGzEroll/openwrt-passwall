@@ -17,8 +17,8 @@ run_case() {
 		export TMP_IFACE_PATH="$case_dir/interfaces"
 		export RULES_PATH="$ROOT_DIR/tests/fixtures/nftables_rules"
 		export CONFIG=passwall
-		export ENABLED_DEFAULT_ACL=1 ENABLED_ACLS=1 LOCALHOST_PROXY=1
-		export SOCKS_ENABLED=0 TCP_NODE=node1 UDP_NODE=node1 TCP_UDP=0
+		export ENABLED=1 ENABLED_DEFAULT_ACL=1 LOCALHOST_PROXY=1
+		export TCP_NODE=node1 UDP_NODE=node1 TCP_UDP=0
 		export TCP_REDIR_PORT=1041 UDP_REDIR_PORT=1051 PROXY_IPV6=1
 		export TCP_REDIR_PORTS=1:65535 UDP_REDIR_PORTS=1:65535
 		export TCP_NO_REDIR_PORTS=disable UDP_NO_REDIR_PORTS=disable
@@ -131,6 +131,7 @@ run_case() {
 				*) echo "${3:-}" ;;
 			esac
 		}
+		config_get_type() { config_n_get "$1" type "${2:-}"; }
 		touch "$TMP_IFACE_PATH/proxy0"
 
 		# The OpenWrt network helper is replaced only in this host-side harness.
