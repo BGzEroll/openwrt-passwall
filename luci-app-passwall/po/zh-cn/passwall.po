@@ -202,8 +202,8 @@ msgstr "需要代理的分流规则域名使用 FakeDNS。"
 msgid "Redirect"
 msgstr "重定向"
 
-msgid "Force Router DNS server to all local devices."
-msgstr "强制所有本地设备使用路由器 DNS。"
+msgid "Force Router DNS server to all local devices. Disable DNS redirect in DNSMASQ."
+msgstr "强制所有本地设备使用路由器 DNS。需要关闭 DNSMASQ 中的重定向 DNS。"
 
 msgid "Clear IPSET"
 msgstr "清空 IPSET"

@@ -397,12 +397,12 @@ if arg2 then
 		end
 	end)
 else
-	gfwlist_update = ucic:get_first(name, 'global_rules', "gfwlist_update", 1)
+	gfwlist_update = ucic:get_first(name, 'global_rules', "gfwlist_update", 0)
 	chnroute_update = ucic:get_first(name, 'global_rules', "chnroute_update", 1)
 	chnroute6_update = ucic:get_first(name, 'global_rules', "chnroute6_update", 1)
-	chnlist_update = ucic:get_first(name, 'global_rules', "chnlist_update", 1)
-	geoip_update = ucic:get_first(name, 'global_rules', "geoip_update", 1)
-	geosite_update = ucic:get_first(name, 'global_rules', "geosite_update", 1)
+	chnlist_update = ucic:get_first(name, 'global_rules', "chnlist_update", 0)
+	geoip_update = ucic:get_first(name, 'global_rules', "geoip_update", 0)
+	geosite_update = ucic:get_first(name, 'global_rules', "geosite_update", 0)
 end
 if gfwlist_update == 0 and chnroute_update == 0 and chnroute6_update == 0 and chnlist_update == 0 and geoip_update == 0 and geosite_update == 0 then
 	os.exit(0)
