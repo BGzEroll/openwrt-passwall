@@ -470,7 +470,7 @@ setup_client_chains() {
 
 	# DNS hijack is a global NAT decision. Let client DNS leave mangle before
 	# any ACL/default TPROXY rule so dstnat can redirect it to the router's DNS.
-	if [ "$(config_t_get global dns_redirect 0)" = "1" ]; then
+	if [ "$(config_t_get global dns_redirect 1)" = "1" ]; then
 		nft "add rule $NFTABLE_NAME PSW_MANGLE meta l4proto { tcp, udp } th dport 53 counter return"
 		nft "add rule $NFTABLE_NAME PSW_MANGLE_V6 meta l4proto { tcp, udp } th dport 53 counter return"
 	fi
@@ -528,7 +528,7 @@ setup_localhost() {
 }
 
 setup_dns() {
-	[ "$(config_t_get global dns_redirect 0)" = "1" ] || return 0
+	[ "$(config_t_get global dns_redirect 1)" = "1" ] || return 0
 	create_chain PSW_DNS_REDIRECT
 	nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto udp udp dport 53 counter redirect to :53 comment \"PSW_DNS_Redirect\""
 	nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto tcp tcp dport 53 counter redirect to :53 comment \"PSW_DNS_Redirect\""
@@ -667,8 +667,8 @@ add_firewall_rule() {
 	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6 fd00::114:514)
 	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface br-lan)
 	iproute_shunt_offloading_interface=$(config_t_get global_forwarding iproute_shunt_offloading_interface lan1,lan2,lan3,wan)
-	accept_icmp=$(config_t_get global_forwarding accept_icmp 0)
-	accept_icmpv6=$(config_t_get global_forwarding accept_icmpv6 0)
+	accept_icmp=$(config_t_get global_forwarding accept_icmp 1)
+	accept_icmpv6=$(config_t_get global_forwarding accept_icmpv6 1)
 
 	echolog "开始加载 nftables 规则（TCP/UDP TPROXY-first）..."
 	gen_nft_tables
