@@ -26,7 +26,6 @@ LOCAL_DNS=119.29.29.29,223.5.5.5
 DEFAULT_DNS=
 IPT_APPEND_DNS=
 ENABLED_DEFAULT_ACL=0
-PROXY_IPV6=0
 resolve_dns=0
 use_tcp_node_resolve_dns=0
 use_udp_node_resolve_dns=0
@@ -750,7 +749,7 @@ run_socks() {
 run_redir() {
 	local node proto bind local_port config_file log_file
 	eval_set_val $@
-	local tcp_node_socks_flag tcp_node_http_flag
+	local tcp_node_socks_flag
 	[ -n "$config_file" ] && [ -z "$(echo ${config_file} | grep $TMP_PATH)" ] && config_file=${TMP_ACL_PATH}/default/${config_file}
 	if [ -n "$log_file" ] && [ -z "$(echo ${log_file} | grep $TMP_PATH)" ]; then
 		log_file=${TMP_ACL_PATH}/default/${log_file}
@@ -826,8 +825,6 @@ run_redir() {
 		tcp_node_socks_bind="127.0.0.1"
 		[ "${tcp_node_socks_bind_local}" != "1" ] && tcp_node_socks_bind="0.0.0.0"
 		tcp_node_socks_port=$(get_new_port $(config_t_get global tcp_node_socks_port 1070))
-		tcp_node_http_port=$(config_t_get global tcp_node_http_port 0)
-		[ "$tcp_node_http_port" != "0" ] && tcp_node_http=1
 
 			can_ipt=$(echo "$TPROXY_LIST" | grep "$type")
 		[ -z "$can_ipt" ] && type="socks"
@@ -857,11 +854,6 @@ run_redir() {
 				tcp_node_socks_flag=1
 				_args="${_args} socks_address=${tcp_node_socks_bind} socks_port=${tcp_node_socks_port}"
 				config_file=$(echo $config_file | sed "s/TCP/TCP_SOCKS/g")
-			}
-			[ "$tcp_node_http" = "1" ] && {
-				tcp_node_http_flag=1
-				_args="${_args} http_port=${tcp_node_http_port}"
-				config_file=$(echo $config_file | sed "s/TCP/TCP_HTTP/g")
 			}
 			[ "$TCP_UDP" = "1" ] && {
 				UDP_REDIR_PORT=$local_port
@@ -933,11 +925,6 @@ run_redir() {
 				tcp_node_socks_flag=1
 				_args="${_args} socks_address=${tcp_node_socks_bind} socks_port=${tcp_node_socks_port}"
 				config_file=$(echo $config_file | sed "s/TCP/TCP_SOCKS/g")
-			}
-			[ "$tcp_node_http" = "1" ] && {
-				tcp_node_http_flag=1
-				_args="${_args} http_port=${tcp_node_http_port}"
-				config_file=$(echo $config_file | sed "s/TCP/TCP_HTTP/g")
 			}
 			[ "$TCP_UDP" = "1" ] && {
 				UDP_REDIR_PORT=$local_port
@@ -1024,11 +1011,6 @@ run_redir() {
 				config_file=$(echo $config_file | sed "s/TCP/TCP_SOCKS/g")
 				_extra_param="${_extra_param} -local_socks_address ${tcp_node_socks_bind} -local_socks_port ${tcp_node_socks_port}"
 			}
-			[ "$tcp_node_http" = "1" ] && {
-				tcp_node_http_flag=1
-				config_file=$(echo $config_file | sed "s/TCP/TCP_HTTP/g")
-				_extra_param="${_extra_param} -local_http_port ${tcp_node_http_port}"
-			}
 			[ "$TCP_UDP" = "1" ] && {
 				config_file=$(echo $config_file | sed "s/TCP/TCP_UDP/g")
 				UDP_REDIR_PORT=$TCP_REDIR_PORT
@@ -1044,11 +1026,6 @@ run_redir() {
 				tcp_node_socks_flag=1
 				config_file=$(echo $config_file | sed "s/TCP/TCP_SOCKS/g")
 				_extra_param="${_extra_param} -local_socks_address ${tcp_node_socks_bind} -local_socks_port ${tcp_node_socks_port}"
-			}
-			[ "$tcp_node_http" = "1" ] && {
-				tcp_node_http_flag=1
-				config_file=$(echo $config_file | sed "s/TCP/TCP_HTTP/g")
-				_extra_param="${_extra_param} -local_http_port ${tcp_node_http_port}"
 			}
 			[ "$TCP_UDP" = "1" ] && {
 				config_file=$(echo $config_file | sed "s/TCP/TCP_UDP/g")
@@ -1076,12 +1053,7 @@ run_redir() {
 			[ "$tcp_node_socks" = "1" ] && {
 				local config_file="SOCKS_TCP.json"
 				local log_file="SOCKS_TCP.log"
-				local http_port=0
-				local http_config_file="HTTP2SOCKS_TCP.json"
-				[ "$tcp_node_http" = "1" ] && [ -z "$tcp_node_http_flag" ] && {
-					http_port=$tcp_node_http_port
-				}
-				run_socks flag=TCP node=$node bind=$tcp_node_socks_bind socks_port=$tcp_node_socks_port config_file=$config_file http_port=$http_port http_config_file=$http_config_file
+				run_socks flag=TCP node=$node bind=$tcp_node_socks_bind socks_port=$tcp_node_socks_port config_file=$config_file
 			}
 		}
 
@@ -1091,7 +1063,7 @@ run_redir() {
 		}
 	;;
 	esac
-	unset tcp_node_socks_flag tcp_node_http_flag
+	unset tcp_node_socks_flag
 	return 0
 }
 
@@ -1151,25 +1123,6 @@ start_crontab() {
 		/etc/init.d/cron restart
 		return
 	}
-
-	auto_on=$(config_t_get global_delay auto_on 0)
-	if [ "$auto_on" = "1" ]; then
-		time_off=$(config_t_get global_delay time_off)
-		time_on=$(config_t_get global_delay time_on)
-		time_restart=$(config_t_get global_delay time_restart)
-		[ -z "$time_off" -o "$time_off" != "nil" ] && {
-			echo "0 $time_off * * * /etc/init.d/$CONFIG stop" >>/etc/crontabs/root
-			echolog "配置定时任务：每天 $time_off 点关闭服务。"
-		}
-		[ -z "$time_on" -o "$time_on" != "nil" ] && {
-			echo "0 $time_on * * * /etc/init.d/$CONFIG start" >>/etc/crontabs/root
-			echolog "配置定时任务：每天 $time_on 点开启服务。"
-		}
-		[ -z "$time_restart" -o "$time_restart" != "nil" ] && {
-			echo "0 $time_restart * * * /etc/init.d/$CONFIG restart" >>/etc/crontabs/root
-			echolog "配置定时任务：每天 $time_restart 点重启服务。"
-		}
-	fi
 
 	autoupdate=$(config_t_get global_rules auto_update)
 	weekupdate=$(config_t_get global_rules week_update)

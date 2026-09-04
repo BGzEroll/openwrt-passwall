@@ -24,7 +24,6 @@ config global
 	option trojan_loglevel '4'
 
 config global_delay
-	option auto_on '0'
 	option start_daemon '1'
 	option start_delay '60'
 

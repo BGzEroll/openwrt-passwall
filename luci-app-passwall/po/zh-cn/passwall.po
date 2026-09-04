@@ -70,9 +70,6 @@ msgstr "编辑当前节点"
 msgid "Listen Port"
 msgstr "监听端口"
 
-msgid "0 is not use"
-msgstr "0 为不使用"
-
 msgid "Same as the tcp node"
 msgstr "与 TCP 节点相同"
 
@@ -561,18 +558,6 @@ msgstr "单位：秒"
 
 msgid "Units:minutes"
 msgstr "单位：分钟"
-
-msgid "Open and close automatically"
-msgstr "定时自动开关"
-
-msgid "Automatically turn off time"
-msgstr "自动关闭时间"
-
-msgid "Automatically turn on time"
-msgstr "自动开启时间"
-
-msgid "Automatically restart time"
-msgstr "自动重启时间"
 
 msgid "Forwarding Settings"
 msgstr "转发配置"

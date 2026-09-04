@@ -277,28 +277,6 @@ function is_mac(val)
 	return datatypes.macaddr(val)
 end
 
-function ip_or_mac(val)
-	if val then
-		if get_ip_type(val) == "4" then
-			return "ip"
-		end
-		if is_mac(val) then
-			return "mac"
-		end
-	end
-	return ""
-end
-
-function iprange(val)
-	if val then
-		local ipStart, ipEnd = val:match("^([^/]+)-([^/]+)$")
-		if (ipStart and datatypes.ip4addr(ipStart)) and (ipEnd and datatypes.ip4addr(ipEnd)) then
-			return true
-		end
-	end
-	return false
-end
-
 function get_domain_from_url(url)
 	local domain = string.match(url, "//([^/]+)")
 	if domain then
