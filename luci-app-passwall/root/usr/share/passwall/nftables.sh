@@ -515,15 +515,15 @@ setup_localhost() {
 		fi
 	done
 
-	nft "add rule $NFTABLE_NAME mangle_output meta nfproto ipv4 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE comment \"PSW_OUTPUT_MANGLE\""
-	[ "$PROXY_IPV6" = "1" ] && nft "add rule $NFTABLE_NAME mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE comment \"PSW_OUTPUT_MANGLE\""
+	nft "add rule $NFTABLE_NAME mangle_output meta nfproto ipv4 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE"
+	[ "$PROXY_IPV6" = "1" ] && nft "add rule $NFTABLE_NAME mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE"
 }
 
 setup_dns() {
 	[ "$(config_t_get global dns_redirect 1)" = "1" ] || return 0
 	create_chain PSW_DNS_REDIRECT
-	nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto udp udp dport 53 counter redirect to :53 comment \"PSW_DNS_Redirect\""
-	nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto tcp tcp dport 53 counter redirect to :53 comment \"PSW_DNS_Redirect\""
+	nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto udp udp dport 53 counter redirect to :53"
+	nft "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto tcp tcp dport 53 counter redirect to :53"
 	nft "add rule $NFTABLE_NAME dstnat counter jump PSW_DNS_REDIRECT"
 }
 
@@ -570,10 +570,10 @@ filter_node() {
 		for ip_type in ip ip6; do
 			[ "$ip_type" = "ip" ] && resolved=$(get_host_ip ipv4 "$address") || resolved=$(get_host_ip ipv6 "$address")
 			[ -n "$resolved" ] || continue
-			if ! nft "list chain $NFTABLE_NAME PSW_OUTPUT_MANGLE" 2>/dev/null | grep -q "$resolved:$port"; then
+			if ! nft -n "list chain $NFTABLE_NAME PSW_OUTPUT_MANGLE" 2>/dev/null | grep -F "$ip_type daddr $resolved " | grep -Fq " dport $port "; then
 				dst_rule="return"
 				[ "$nested" = "1" ] && [ -n "$proxy_port" ] && dst_rule="goto PSW_ROUTE_PROXY"
-				nft "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE meta l4proto $rule_stream $ip_type daddr $resolved $rule_stream dport $port $dst_rule comment \"$resolved:$port\"" 2>/dev/null
+				nft "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE meta l4proto $rule_stream $ip_type daddr $resolved $rule_stream dport $port $dst_rule" 2>/dev/null
 			fi
 		done
 	}
@@ -609,7 +609,7 @@ setup_node_bypass() {
 	# interface bypass in addition to address-based VPS sets to prevent loops.
 	local iface
 	for iface in $(ls "$TMP_IFACE_PATH" 2>/dev/null); do
-		nft "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE oifname \"$iface\" counter return comment \"node interface bypass\""
+		nft "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE oifname \"$iface\" counter return"
 	done
 
 	local node port stream
@@ -649,7 +649,10 @@ setup_flow_offload() {
 	[ "$iproute_shunt" = "1" ] || return 0
 	nft "add flowtable $NFTABLE_NAME ft { hook ingress priority filter - 1; devices = { $iproute_shunt_offloading_interface }; flags offload; counter; }"
 	nft "add rule $NFTABLE_NAME hwnat_pass meta l4proto { tcp, udp } counter jump PSW_HWNAT_PASS"
-	nft "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } meta mark != $PROXY_MARK ct mark != $PROXY_MARK flow add @ft comment \"直连流量硬件加速\""
+	nft "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } meta mark != $PROXY_MARK ct mark != $PROXY_MARK flow add @ft"
+	# Build from the original direction: skb_dst carries table 100's PBR
+	# route; the kernel obtains the client return path from main.
+	nft "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } ct direction original meta mark $PROXY_MARK counter flow add @ft"
 }
 
 add_firewall_rule() {
