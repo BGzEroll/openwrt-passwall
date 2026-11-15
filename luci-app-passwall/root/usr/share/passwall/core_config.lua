@@ -65,7 +65,12 @@ local function signature()
    result.global[key] = global[key]
   end
  end
- if next(selected) then result.xray = clean(uci:get_all('passwall', '@global_xray[0]')) end
+ if next(selected) then
+  result.xray = clean(uci:get_all('passwall', '@global_xray[0]'))
+  if result.xray.sniffing_override_dest == '1' then
+   result.domains_excluded = api.fs.readfile('/usr/share/passwall/rules/domains_excluded') or ''
+  end
+ end
  local function encode(value)
   if type(value) ~= 'table' then return json.stringify(value) end
   local keys, out = {}, {}

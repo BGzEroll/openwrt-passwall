@@ -68,6 +68,7 @@ PBR 开启时自动关闭 fw4 原生的软、硬件流量分载，使用 Passwal
 
 - 每次操作使用固定的配置快照，成功后保存为生效配置；运行状态和后续网络、规则热更新以生效配置为准。
 - 核心配置先生成并校验，失败保留原服务。仅备注、未引用节点或普通规则变化时，不重启核心。
+- ChinaDNS-NG 域名文件变化时仅替换 DNS 实例，加载失败恢复旧快照；Xray 嗅探排除文件变化时重新生成并加载核心配置。配置与规则更新均检查文件变化。
 - NFT 表通过完整事务替换，DNS 配置按需更新并在失败时回滚。DNS 学习集合及 flowtable 在替换后重新积累。
 - hotplug 关注 `wan`、`wan6`、`lan`，并从“通过接口”反查对应的 netifd 逻辑接口。重复通知跳过，停止后的通知不会重新启动服务。
 - 延迟启动可取消；重复启停和热更新通过同一服务锁串行处理。
@@ -79,7 +80,7 @@ PBR 开启时自动关闭 fw4 原生的软、硬件流量分载，使用 Passwal
 /etc/init.d/passwall stop
 /etc/init.d/passwall restart
 /etc/init.d/passwall reload          # 核心变化时重启，否则热更新
-/etc/init.d/passwall reload rules    # 更新规则，不重启核心
+/etc/init.d/passwall reload rules    # 更新规则，按需重载依赖规则文件的进程
 /etc/init.d/passwall reload network  # 按当前网络状态更新
 ```
 

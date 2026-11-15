@@ -93,6 +93,89 @@ local function ports_ready(instance)
  return true
 end
 
+-- ChinaDNS reads domain files only at startup. Keep each running instance's
+-- inputs immutable so a failed replacement can restart the old instance.
+local function dns_files(expected)
+ local changed, created, obsolete = false, {}, {}
+ for name, instance in pairs(expected) do
+  if instance.command[3]:match('/chinadns%-ng$') then
+   local source = (instance.data or {}).source_config or config_arg(instance.command)
+   local text = assert(fs.readfile(source))
+   local files, content = {}, {}
+   for option, path in text:gmatch('([%w%-]+)%s+([^\r\n]+)') do
+    if option == 'group-dnl' or option == 'gfwlist-file' then
+     files[#files + 1] = path
+     content[path] = fs.readfile(path) or ''
+    end
+   end
+   local signature = text
+   for _, path in ipairs(files) do signature = signature .. '\0' .. path .. '\0' .. content[path] end
+   local folder = sys.exec('mktemp -d ' .. quote(directory .. '/dns.XXXXXX')):gsub('%s+$', '')
+   assert(folder ~= '', '无法创建 DNS 规则快照')
+   assert(fs.writefile(folder .. '/signature', signature))
+   signature = sys.exec('sha256sum ' .. quote(folder .. '/signature')):match('^(%x+)')
+   assert(signature, 'DNS 规则签名失败')
+   fs.unlink(folder .. '/signature')
+   if signature ~= (instance.data or {}).file_signature then
+    created[#created + 1] = folder
+    for i, path in ipairs(files) do
+     local target = folder .. '/list' .. i
+     assert(fs.writefile(target, content[path]))
+     text = text:gsub('([^\r\n]+)', function(line)
+      local option, value = line:match('^%s*([%w%-]+)%s+(.+)$')
+      if (option == 'group-dnl' or option == 'gfwlist-file') and value == path then return option .. ' ' .. target end
+      return line
+     end)
+    end
+    assert(fs.writefile(folder .. '/config', text))
+    local old = config_arg(instance.command)
+    if old ~= source then obsolete[#obsolete + 1] = old:match('^(.*)/config$') end
+    for i, arg in ipairs(instance.command) do
+     if arg == '-C' then instance.command[i + 1] = folder .. '/config'; break end
+    end
+    instance.data = {source_config=source, file_signature=signature}
+    changed = true
+   else
+    fs.rmdir(folder)
+   end
+  end
+ end
+ return changed, created, obsolete
+end
+
+local function remove_folders(folders)
+ for _, folder in ipairs(folders) do fs.remover(folder) end
+end
+
+local function reload_files()
+ local previous, expected = plans(directory), plans(directory)
+ local changed, created, obsolete = dns_files(expected)
+ if not changed then return end
+ local ok, err = pcall(function()
+  call('set', {name='passwall', instances=expected})
+  for _ = 1, 50 do
+   local service = call('list', {name='passwall'}).passwall or {}
+   local ready = true
+   for name, instance in pairs(expected) do
+    local live = (service.instances or {})[name]
+    if not live or not live.running or not ports_ready(instance) then ready = false end
+   end
+   if ready then return end
+   nixio.nanosleep(0, 100000000)
+  end
+  error('DNS 文件规则加载失败')
+ end)
+ if not ok then
+  call('set', {name='passwall', instances=previous})
+  remove_folders(created)
+  error(err, 0)
+ end
+ for name, instance in pairs(expected) do
+  assert(fs.writefile(directory .. '/' .. name .. '.json', json.stringify(instance)))
+ end
+ remove_folders(obsolete)
+end
+
 local function status()
  local uci = require 'uci'.cursor(root .. '/runtime/config', root .. '/runtime/config')
  local function runtime(key)
@@ -185,7 +268,14 @@ local ok, err = pcall(function()
   assert(not fs.access(directory .. '/error'), '核心配置生成失败')
   for _, instance in pairs(plans(directory)) do validate(instance) end
  elseif action == 'start' then
-  call('set', {name='passwall', instances=plans(directory)})
+  local expected = plans(directory)
+  dns_files(expected)
+  for name, instance in pairs(expected) do
+   assert(fs.writefile(directory .. '/' .. name .. '.json', json.stringify(instance)))
+  end
+  call('set', {name='passwall', instances=expected})
+ elseif action == 'reload_files' then
+  reload_files()
  elseif action == 'stop' then
   local service = call('list', {name='passwall'}).passwall
   local pids = {}

@@ -228,7 +228,7 @@ run_chinadns_ng() {
 		EOF
 	}
 
-	[ "${_use_direct_list}" = "1" ] && [ -s "${RULES_PATH}/direct_host" ] && {
+	[ "${_use_direct_list}" = "1" ] && {
 		local whitelist4_set="inet@passwall@passwall_whitelist"
 		local whitelist6_set="inet@passwall@passwall_whitelist6"
 		cat <<-EOF >> ${_CONF_FILE}
@@ -239,7 +239,7 @@ run_chinadns_ng() {
 		EOF
 	}
 
-	[ "${_use_proxy_list}" = "1" ] && [ -s "${RULES_PATH}/proxy_host" ] && {
+	[ "${_use_proxy_list}" = "1" ] && {
 		local blacklist4_set="inet@passwall@passwall_blacklist"
 		local blacklist6_set="inet@passwall@passwall_blacklist6"
 		cat <<-EOF >> ${_CONF_FILE}
@@ -250,7 +250,7 @@ run_chinadns_ng() {
 		EOF
 	}
 
-	[ "${_gfwlist}" = "1" ] && [ -s "${RULES_PATH}/gfwlist" ] && {
+	[ "${_gfwlist}" = "1" ] && {
 		local gfwlist4_set="inet@passwall@passwall_gfwlist"
 		local gfwlist6_set="inet@passwall@passwall_gfwlist6"
 		cat <<-EOF >> ${_CONF_FILE}
@@ -543,6 +543,7 @@ app_dns_restore() {
 }
 
 app_dns_apply() {
+	APP_DNS_APPLIED=0
 	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
 	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] && cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
 		return 0
@@ -561,6 +562,7 @@ app_dns_apply() {
 		echolog DNS "DNS 配置应用失败，已尝试恢复旧配置"
 		return 1
 	fi
+	APP_DNS_APPLIED=1
 	debuglog DNS "DNS 配置已更新"
 }
 
@@ -747,7 +749,8 @@ app_apply() {
 		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
 		return 1
 	fi
-	if ! app_dns_apply "$work"; then
+	if ! app_dns_apply "$work" || ! lua "$APP_PATH/process.lua" reload_files "$PROCESS_DIR"; then
+		[ "${APP_DNS_APPLIED:-0}" != 1 ] || app_dns_restore "$work"
 		if [ -s "$STATE_PATH/rules.nft" ]; then nft_restore; else nft_stop; fi
 		app_system_restore "$work"
 		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
@@ -762,12 +765,18 @@ app_reload() {
 	if [ "$reason" = config ]; then
 		[ "$ENABLED" = 1 ] || { app_stop; return $?; }
 		[ -f "$STATE_PATH/running" ] || { app_start; return $?; }
-		if [ "$(app_core_signature)" != "$(cat "$STATE_PATH/core.sha256")" ]; then
-			app_restart
-			return $?
-		fi
 	fi
 	[ -f "$STATE_PATH/running" ] || return 0
+	if [ "$reason" = config ] || [ "$reason" = rules ]; then
+		if [ "$(app_core_signature)" != "$(cat "$STATE_PATH/core.sha256")" ]; then
+			local saved_error status
+			[ "$reason" != rules ] || saved_error=$(cat "$STATE_PATH/last_error" 2>/dev/null)
+			app_restart
+			status=$?
+			[ -z "$saved_error" ] || printf '%s\n' "$saved_error" > "$STATE_PATH/last_error"
+			return "$status"
+		fi
+	fi
 	app_runtime_load
 	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
 		LOCAL_DNS=$(dns_endpoints "$old_local_dns") || return 1
@@ -926,6 +935,9 @@ mkdir -p "$STATE_PATH"
 CONFIG_INPUT=$(mktemp -d "$STATE_PATH/config.XXXXXX") || exit 1
 trap 'rm -rf "$CONFIG_INPUT"' EXIT
 case "$1:$2" in
+ check:*)
+  [ -z "${PASSWALL_CONFIG_DIR:-}" ] || cp "$PASSWALL_CONFIG_DIR/passwall" "$CONFIG_INPUT/passwall" || exit 1
+ ;;
  reload:network|reload:firewall|reload:rules|update_rules:*)
   [ ! -f "$STATE_PATH/running" ] || cp "$STATE_PATH/runtime/config/passwall" "$CONFIG_INPUT/passwall" || exit 1
  ;;
