@@ -306,15 +306,10 @@ end
 
 m:append(Template(appname .. "/rule_list/js"))
 
-if sys.call('[ -f "/www/luci-static/resources/uci.js" ]') == 0 then
-	m.apply_on_parse = true
-	function m.on_apply(self)
-		luci.sys.call("/etc/init.d/passwall reload > /dev/null 2>&1 &")
-	end
-end
-
-function m.on_commit(self)
-	luci.sys.call('sh /usr/share/passwall/nftables.sh flush_nftset > /dev/null 2>&1 &')
+m.apply_on_parse = true
+m.apply_on_parse = true
+function m.on_apply(self)
+	sys.call("/etc/init.d/passwall reload rules > /dev/null 2>&1 &")
 end
 
 return m

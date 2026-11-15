@@ -474,7 +474,7 @@ o.default = "1"
 o = s:taboption("DNS", Button, "clear_ipset", translate("Clear NFTSET"), translate("Try this feature if the rule modification does not take effect."))
 o.inputstyle = "remove"
 function o.write(e, e)
-	luci.sys.call('sh /usr/share/passwall/nftables.sh flush_nftset_reload > /dev/null 2>&1 &')
+	luci.sys.call("/etc/init.d/passwall reload rules > /dev/null 2>&1 &")
 	luci.http.redirect(api.url("log"))
 end
 

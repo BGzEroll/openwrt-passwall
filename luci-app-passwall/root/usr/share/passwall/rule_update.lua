@@ -5,15 +5,19 @@ require 'luci.sys'
 local luci = luci
 local ucic = luci.model.uci.cursor()
 local jsonc = require "luci.jsonc"
+local datatypes = require "luci.cbi.datatypes"
 local name = 'passwall'
 local api = require ("luci.passwall.api")
 local arg1 = arg[1]
 local arg2 = arg[2]
 local arg3 = arg[3]
 
-local nftable_name = "inet passwall"
 local rule_path = "/usr/share/" .. name .. "/rules"
-local reboot = 0
+local task_tmp_dir
+local rule_publish_dir
+local staged_rules = {}
+local core_resource_changed = false
+local update_failed = false
 local gfwlist_update = 0
 local chnroute_update = 0
 local chnroute6_update = 0
@@ -24,8 +28,6 @@ local geosite_update = 0
 -- match comments/title/whitelist/ip address/excluded_domain
 local comment_pattern = "^[#!\\[@]+"
 local ip_pattern = "^%d+%.%d+%.%d+%.%d+"
-local ip4_ipset_pattern = "^%d+%.%d+%.%d+%.%d+[%/][%d]+$"
-local ip6_ipset_pattern = ":-[%x]+%:+[%x]-[%/][%d]+$"
 local domain_pattern = "([%w%-%_]+%.[%w%.%-%_]+)[%/%*]*"
 local excluded_domain = {"apple.com","sina.cn","sina.com.cn","baidu.com","byr.cn","jlike.com","weibo.com","zhongsou.com","youdao.com","sogou.com","so.com","soso.com","aliyun.com","taobao.com","jd.com","qq.com","bing.com"}
 
@@ -51,328 +53,330 @@ local log = function(...)
 	end
 end
 
-local function gen_nftset(set_name, ip_type, tmp_file, input_file)
-	f = io.open(input_file, "r")
-	local element = f:read("*all")
-	f:close()
+local function trim(value)
+	return (value or ""):gsub("^%s*(.-)%s*$", "%1")
+end
 
-	nft_file, err = io.open(tmp_file, "w")
-	nft_file:write('#!/usr/sbin/nft -f\n')
-	nft_file:write(string.format('define %s = {%s}\n', set_name, string.gsub(element, "%s*%c+", " timeout 3650d, ")))
-	if luci.sys.call(string.format('nft "list set %s %s" >/dev/null 2>&1', nftable_name, set_name)) ~= 0 then
-		nft_file:write(string.format('add set %s %s { type %s; flags interval, timeout; timeout 2d; gc-interval 2d; auto-merge; }\n', nftable_name, set_name, ip_type))
+local function shell_quote(value)
+	return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function read_file(path)
+	local file = io.open(path, "rb")
+	if not file then
+		return nil
 	end
-	nft_file:write(string.format('add element %s %s $%s\n', nftable_name, set_name, set_name))
-	nft_file:close()
-	luci.sys.call(string.format('nft -f %s >/dev/null 2>&1', tmp_file))
-	os.remove(tmp_file)
+	local content = file:read("*all")
+	local ok = file:close()
+	if not content or ok == nil then
+		return nil
+	end
+	return content
 end
 
---gen cache for nftset from file
-local function gen_cache(set_name, ip_type, input_file, output_file)
-	local tmp_dir = "/tmp/"
-	local tmp_file = output_file .. "_tmp"
-	local tmp_set_name = set_name .. "_tmp"
-	gen_nftset(tmp_set_name, ip_type, tmp_file, input_file)
-	luci.sys.call(string.format('nft list set %s %s | sed "s/%s/%s/g" | cat > %s', nftable_name, tmp_set_name, tmp_set_name, set_name, output_file))
-	luci.sys.call(string.format('nft flush set %s %s', nftable_name, tmp_set_name))
-	luci.sys.call(string.format('nft delete set %s %s', nftable_name, tmp_set_name))
+local function write_file(path, content)
+	local file = io.open(path, "wb")
+	if not file then
+		return false
+	end
+	local ok = file:write(content)
+	local close_ok = file:close()
+	return ok ~= nil and close_ok ~= nil
 end
 
--- curl
-local function curl(url, file, valifile)
+local function file_nonempty(path)
+	local size = tonumber(nixio.fs.stat(path, "size"))
+	return size ~= nil and size > 0
+end
+
+local function create_task_tmp_dir()
+	local path = trim(luci.sys.exec("mktemp -d /tmp/passwall-rule-update.XXXXXX 2>/dev/null"))
+	if path:match("^/tmp/passwall%-rule%-update%.[A-Za-z0-9]+$") and nixio.fs.stat(path, "type") == "dir" then
+		return path
+	end
+	return nil
+end
+
+local function cleanup_task_tmp_dir()
+	if task_tmp_dir and task_tmp_dir:match("^/tmp/passwall%-rule%-update%.[A-Za-z0-9]+$") then
+		luci.sys.call("rm -rf " .. shell_quote(task_tmp_dir) .. " >/dev/null 2>&1")
+	end
+end
+
+-- curl, returning both the process status and the final HTTP status.
+local function curl(url, file)
 	local args = {
-		"-skL", "-w %{http_code}", "--retry 3", "--connect-timeout 3"
+		"-skfL", "-w %{http_code}", "--retry 3", "--connect-timeout 3"
 	}
 	if file then
 		args[#args + 1] = "-o " .. file
 	end
-	if valifile then
-		args[#args + 1] = "--dump-header " .. valifile
-	end
 	local return_code, result = api.curl_logic(url, nil, args)
-	return tonumber(result)
+	return return_code, tonumber(result)
 end
 
---check excluded domain
 local function check_excluded_domain(value)
-	for k,v in ipairs(excluded_domain) do
-		if value:find(v) then
+	for _, domain in ipairs(excluded_domain) do
+		if value:find(domain) then
 			return true
 		end
 	end
+	return false
 end
 
-local function line_count(file_path)
-	local num = 0
-	for _ in io.lines(file_path) do
-		num = num + 1
-	end
-	return num;
-end
-
-local function non_file_check(file_path, vali_file)
-	if nixio.fs.readfile(file_path, 10) then
-		local remote_file_size = tonumber(luci.sys.exec("cat " .. vali_file .. " | grep -i 'Content-Length' | awk '{print $2}'"))
-		local local_file_size = tonumber(nixio.fs.stat(file_path, "size"))
-		if remote_file_size and local_file_size then
-			if remote_file_size == local_file_size then
-				return nil;
-			else
-				log("下载文件大小校验出错，原始文件大小" .. remote_file_size .. "B，下载文件大小：" .. local_file_size .. "B。")
-				return true;
-			end
-		else
-			return nil;
-		end
-	else
-		log("下载文件读取出错。")
-		return true;
-	end
-end
-
---fetch rule
-local function fetch_rule(rule_name,rule_type,url,exclude_domain)
-	local sret = 200
-	local sret_tmp = 0
-	local domains = {}
-	local file_tmp = "/tmp/" ..rule_name.. "_tmp"
-	local vali_file = "/tmp/" ..rule_name.. "_vali"
-	local download_file_tmp = "/tmp/" ..rule_name.. "_dl"
-	local unsort_file_tmp = "/tmp/" ..rule_name.. "_unsort"
-
-	log(rule_name.. " 开始更新...")
-	for k,v in ipairs(url) do
-		sret_tmp = curl(v, download_file_tmp..k, vali_file..k)
-		if sret_tmp == 200 and non_file_check(download_file_tmp..k, vali_file..k) then
-			log(rule_name.. " 第" ..k.. "条规则:" ..v.. "下载文件过程出错，尝试重新下载。")
-			os.remove(download_file_tmp..k)
-			os.remove(vali_file..k)
-			sret_tmp = curl(v, download_file_tmp..k, vali_file..k)
-			if sret_tmp == 200 and non_file_check(download_file_tmp..k, vali_file..k) then
-				sret = 0
-				sret_tmp = 0
-				log(rule_name.. " 第" ..k.. "条规则:" ..v.. "下载文件过程出错，请检查网络或下载链接后重试！")
-			end
-		end
-
-		if sret_tmp == 200 then
-			if rule_name == "gfwlist" then
-				local domains = {}
-				local gfwlist = io.open(download_file_tmp..k, "r")
-				local decode = api.base64Decode(gfwlist:read("*all"))
-				gfwlist:close()
-
-				gfwlist = io.open(download_file_tmp..k, "w")
-				gfwlist:write(decode)
-				gfwlist:close()
-			end
-
-			if rule_type == "domain" and exclude_domain == true then
-				for line in io.lines(download_file_tmp..k) do
-					if not (string.find(line, comment_pattern) or string.find(line, ip_pattern) or check_excluded_domain(line)) then
-						local start, finish, match = string.find(line, domain_pattern)
-						if (start) then
-							domains[match] = true
-						end
+local function parse_rule_content(content, rule_type, exclude_domain)
+	local entries = {}
+	content = content:gsub("\r\n", "\n"):gsub("\r", "\n")
+	for line in (content .. "\n"):gmatch("(.-)\n") do
+		line = trim(line)
+		if line ~= "" and not line:find(comment_pattern) then
+			if rule_type == "domain" then
+				if not line:find(ip_pattern) and not (exclude_domain and check_excluded_domain(line)) then
+					local _, _, domain = line:find(domain_pattern)
+					if domain and domain ~= "" then
+						entries[domain] = true
 					end
 				end
-
-			elseif rule_type == "domain" then
-				for line in io.lines(download_file_tmp..k) do
-					if not (string.find(line, comment_pattern) or string.find(line, ip_pattern)) then
-						local start, finish, match = string.find(line, domain_pattern)
-						if (start) then
-							domains[match] = true
-						end
-					end
-				end
-
 			elseif rule_type == "ip4" then
-				local out = io.open(unsort_file_tmp, "a")
-				for line in io.lines(download_file_tmp..k) do
-					local start, finish, match = string.find(line, ip4_ipset_pattern)
-					if (start) then
-						out:write(string.format("%s\n", line))
-					end
+				if datatypes.ipmask4(line) or datatypes.ip4addr(line) then
+					entries[line] = true
 				end
-				out:close()
-
 			elseif rule_type == "ip6" then
-				local out = io.open(unsort_file_tmp, "a")
-				for line in io.lines(download_file_tmp..k) do
-					local start, finish, match = string.find(line, ip6_ipset_pattern)
-					if (start) then
-						out:write(string.format("%s\n", line))
+				if datatypes.ipmask6(line) or datatypes.ip6addr(line) then
+					entries[line] = true
+				end
+			end
+		end
+	end
+	local sorted = {}
+	for entry in pairs(entries) do
+		sorted[#sorted + 1] = entry
+	end
+	table.sort(sorted)
+	return sorted
+end
+
+local function read_old_rule(rule_name)
+	local path = rule_path .. "/" .. rule_name
+	local content = read_file(path)
+	if content == nil and nixio.fs.access(path) then
+		return nil, false
+	end
+	return content, true
+end
+
+-- Download, parse, and stage one text rule. The staged filename is on the
+-- init-script whitelist; publication and application happen after all fetches.
+local function fetch_rule(rule_name, rule_type, urls, exclude_domain)
+	if type(urls) == "string" then
+		urls = {urls}
+	end
+	if type(urls) ~= "table" or #urls == 0 then
+		log(rule_name .. " 没有可用下载地址，保留原规则文件。")
+		return false
+	end
+
+	log(rule_name .. " 开始更新...")
+	local entries = {}
+	local failed = false
+	for index, url in ipairs(urls) do
+		local download_path = task_tmp_dir .. "/" .. rule_name .. "_download_" .. index
+		local curl_status, http_status = curl(url, download_path)
+		if curl_status ~= 0 or http_status ~= 200 then
+			failed = true
+			log(rule_name .. " 第" .. index .. "条规则下载失败（curl=" .. tostring(curl_status) .. "，HTTP=" .. tostring(http_status) .. "），保留原规则文件。")
+		else
+			local content = read_file(download_path)
+			if not content or #content == 0 then
+				failed = true
+				log(rule_name .. " 第" .. index .. "条规则下载文件为空或读取失败，保留原规则文件。")
+			else
+				if rule_name == "gfwlist" then
+					content = api.base64Decode(content)
+				end
+				local parsed = parse_rule_content(content, rule_type, exclude_domain)
+				if #parsed == 0 then
+					failed = true
+					log(rule_name .. " 第" .. index .. "条规则解析结果为空，保留原规则文件。")
+				else
+					for _, entry in ipairs(parsed) do
+						entries[entry] = true
 					end
 				end
-				out:close()
-
 			end
-		else
-			sret = 0
-			log(rule_name.. " 第" ..k.. "条规则:" ..v.. "下载失败，请检查网络或下载链接后重试！")
 		end
-		os.remove(download_file_tmp..k)
-		os.remove(vali_file..k)
 	end
 
-	if sret == 200 then
-		if rule_type == "domain" then
-			local out = io.open(unsort_file_tmp, "w")
-			for k,v in pairs(domains) do
-				out:write(string.format("%s\n", k))
-			end
-			out:close()
-		end
-		luci.sys.call("cat " ..unsort_file_tmp.. " | sort -u > "..file_tmp)
-		os.remove(unsort_file_tmp)
-
-		local old_md5 = luci.sys.exec("echo -n $(md5sum " .. rule_path .. "/" ..rule_name.. " | awk '{print $1}')")
-		local new_md5 = luci.sys.exec("echo -n $([ -f '" ..file_tmp.. "' ] && md5sum " ..file_tmp.." | awk '{print $1}')")
-		if old_md5 ~= new_md5 then
-			local count = line_count(file_tmp)
-			if rule_type == "ip6" or rule_type == "ip4" then
-				local set_name = "passwall_" ..rule_name
-				local output_file = file_tmp.. ".nft"
-				if rule_type == "ip4" then
-					gen_cache(set_name, "ipv4_addr", file_tmp, output_file)
-				elseif rule_type == "ip6" then
-					gen_cache(set_name, "ipv6_addr", file_tmp, output_file)
-				end
-				luci.sys.exec(string.format('mv -f %s %s', output_file, rule_path .. "/" ..rule_name.. ".nft"))
-				os.remove(output_file)
-			end
-			luci.sys.exec("mv -f "..file_tmp .. " " ..rule_path .. "/" ..rule_name)
-			reboot = 1
-			log(rule_name.. " 更新成功，总规则数 " ..count.. " 条。")
-		else
-			log(rule_name.. " 版本一致，无需更新。")
-		end
-	else
-		log(rule_name.. " 文件下载失败！")
+	if failed then
+		return false
 	end
-	os.remove(file_tmp)
-	return 0
+
+	local sorted = {}
+	for entry in pairs(entries) do
+		sorted[#sorted + 1] = entry
+	end
+	table.sort(sorted)
+	if #sorted == 0 then
+		log(rule_name .. " 解析结果为空，保留原规则文件。")
+		return false
+	end
+
+	local content = table.concat(sorted, "\n") .. "\n"
+	local old_content, old_readable = read_old_rule(rule_name)
+	if not old_readable then
+		log(rule_name .. " 原规则文件读取失败，保留原文件。")
+		return false
+	end
+	if old_content == content then
+		log(rule_name .. " 版本一致，无需更新。")
+		return true
+	end
+
+	local staged_path = rule_publish_dir .. "/" .. rule_name
+	if not write_file(staged_path, content) then
+		os.remove(staged_path)
+		log(rule_name .. " 暂存文件写入失败，保留原规则文件。")
+		return false
+	end
+	staged_rules[#staged_rules + 1] = { name = rule_name, count = #sorted }
+	return true
 end
 
 local function fetch_gfwlist()
-	fetch_rule("gfwlist","domain",gfwlist_url,true)
+	return fetch_rule("gfwlist", "domain", gfwlist_url, true)
 end
 
 local function fetch_chnroute()
-	fetch_rule("chnroute","ip4",chnroute_url,false)
+	return fetch_rule("chnroute", "ip4", chnroute_url, false)
 end
 
 local function fetch_chnroute6()
-	fetch_rule("chnroute6","ip6",chnroute6_url,false)
+	return fetch_rule("chnroute6", "ip6", chnroute6_url, false)
 end
 
 local function fetch_chnlist()
-	fetch_rule("chnlist","domain",chnlist_url,false)
+	return fetch_rule("chnlist", "domain", chnlist_url, false)
 end
 
---获取geoip
+local function sha256_matches(checksum_path)
+	return luci.sys.call("sha256sum -c " .. shell_quote(checksum_path) .. " >/dev/null 2>&1") == 0
+end
+
+-- GeoIP/GeoSite remain on their existing asset path because update_rules only
+-- accepts the four text-rule files. Their downloads still use this task's
+-- private scratch directory, and a successful asset replacement requests a
+-- service restart after the text-rule handoff has released its init lock.
+local function fetch_geo_asset(asset_name, metadata_url)
+	local checksum_name = asset_name .. ".sha256sum"
+	local return_code, content = api.curl_logic(metadata_url)
+	if return_code ~= 0 or not content or content == "" then
+		log(asset_name .. " 更新元数据下载失败。")
+		return false
+	end
+	local json = jsonc.parse(content)
+	if type(json) ~= "table" or not json.assets then
+		log(asset_name .. " 更新元数据解析失败。")
+		return false
+	end
+
+	local checksum_url
+	local asset_url
+	for _, item in ipairs(json.assets) do
+		if item.name == checksum_name then
+			checksum_url = item.browser_download_url
+		elseif item.name == asset_name then
+			asset_url = item.browser_download_url
+		end
+	end
+	if not checksum_url or not asset_url then
+		log(asset_name .. " 更新资源不完整。")
+		return false
+	end
+
+	local checksum_path = task_tmp_dir .. "/" .. checksum_name
+	local data_path = task_tmp_dir .. "/" .. asset_name
+	local curl_status, http_status = curl(checksum_url, checksum_path)
+	if curl_status ~= 0 or http_status ~= 200 or not file_nonempty(checksum_path) then
+		log(asset_name .. " 校验文件下载失败。")
+		return false
+	end
+	local checksum_content = read_file(checksum_path)
+	local escaped_name = asset_name:gsub("([^%w])", "%%%1")
+	local hash = checksum_content and checksum_content:match("([%x]+)%s+%*?" .. escaped_name)
+	if not hash or #hash ~= 64 or not write_file(checksum_path, hash .. "  " .. data_path .. "\n") then
+		log(asset_name .. " 校验文件格式错误。")
+		return false
+	end
+
+	local asset_path = asset_location .. asset_name
+	if nixio.fs.access(asset_path) then
+		os.remove(data_path)
+		local copy_status = luci.sys.call("cp -f " .. shell_quote(asset_path) .. " " .. shell_quote(data_path) .. " >/dev/null 2>&1")
+		if copy_status == 0 and sha256_matches(checksum_path) then
+			log(asset_name .. " 版本一致，无需更新。")
+			return true
+		end
+	end
+
+	curl_status, http_status = curl(asset_url, data_path)
+	if curl_status ~= 0 or http_status ~= 200 or not file_nonempty(data_path) then
+		log(asset_name .. " 数据文件下载失败。")
+		return false
+	end
+	if not sha256_matches(checksum_path) then
+		log(asset_name .. " 校验失败，请稍后再试。")
+		return false
+	end
+
+	local copy_status = luci.sys.call("mkdir -p " .. shell_quote(asset_location) .. " && cp -f " .. shell_quote(data_path) .. " " .. shell_quote(asset_path) .. " >/dev/null 2>&1")
+	if copy_status == 0 then
+		core_resource_changed = true
+		log(asset_name .. " 更新成功。")
+		return true
+	end
+	log(asset_name .. " 文件发布失败。")
+	return false
+end
+
 local function fetch_geoip()
-	--请求geoip
-	xpcall(function()
-		local return_code, content = api.curl_logic(geoip_api)
-		local json = jsonc.parse(content)
-		if json.tag_name and json.assets then
-			for _, v in ipairs(json.assets) do
-				if v.name and v.name == "geoip.dat.sha256sum" then
-					local sret = curl(v.browser_download_url, "/tmp/geoip.dat.sha256sum")
-					if sret == 200 then
-						local f = io.open("/tmp/geoip.dat.sha256sum", "r")
-						local content = f:read()
-						f:close()
-						f = io.open("/tmp/geoip.dat.sha256sum", "w")
-						f:write(content:gsub("geoip.dat", "/tmp/geoip.dat"), "")
-						f:close()
-
-						if nixio.fs.access(asset_location .. "geoip.dat") then
-							luci.sys.call(string.format("cp -f %s %s", asset_location .. "geoip.dat", "/tmp/geoip.dat"))
-							if luci.sys.call('sha256sum -c /tmp/geoip.dat.sha256sum > /dev/null 2>&1') == 0 then
-								log("geoip 版本一致，无需更新。")
-								return 1
-							end
-						end
-						for _2, v2 in ipairs(json.assets) do
-							if v2.name and v2.name == "geoip.dat" then
-								sret = curl(v2.browser_download_url, "/tmp/geoip.dat")
-								if luci.sys.call('sha256sum -c /tmp/geoip.dat.sha256sum > /dev/null 2>&1') == 0 then
-									luci.sys.call(string.format("mkdir -p %s && cp -f %s %s", asset_location, "/tmp/geoip.dat", asset_location .. "geoip.dat"))
-									reboot = 1
-									log("geoip 更新成功。")
-									return 1
-								else
-									log("geoip 更新失败，请稍后再试。")
-								end
-								break
-							end
-						end
-					end
-					break
-				end
-			end
-		end
-	end,
-	function(e)
-	end)
-
-	return 0
+	return fetch_geo_asset("geoip.dat", geoip_api)
 end
 
---获取geosite
 local function fetch_geosite()
-	--请求geosite
-	xpcall(function()
-		local return_code, content = api.curl_logic(geosite_api)
-		local json = jsonc.parse(content)
-		if json.tag_name and json.assets then
-			for _, v in ipairs(json.assets) do
-				if v.name and v.name == "geosite.dat.sha256sum" then
-					local sret = curl(v.browser_download_url, "/tmp/geosite.dat.sha256sum")
-					if sret == 200 then
-						local f = io.open("/tmp/geosite.dat.sha256sum", "r")
-						local content = f:read()
-						f:close()
-						f = io.open("/tmp/geosite.dat.sha256sum", "w")
-						f:write(content:gsub("geosite.dat", "/tmp/geosite.dat"), "")
-						f:close()
-
-						if nixio.fs.access(asset_location .. "geosite.dat") then
-							luci.sys.call(string.format("cp -f %s %s", asset_location .. "geosite.dat", "/tmp/geosite.dat"))
-							if luci.sys.call('sha256sum -c /tmp/geosite.dat.sha256sum > /dev/null 2>&1') == 0 then
-								log("geosite 版本一致，无需更新。")
-								return 1
-							end
-						end
-						for _2, v2 in ipairs(json.assets) do
-							if v2.name and v2.name == "geosite.dat" then
-								sret = curl(v2.browser_download_url, "/tmp/geosite.dat")
-								if luci.sys.call('sha256sum -c /tmp/geosite.dat.sha256sum > /dev/null 2>&1') == 0 then
-									luci.sys.call(string.format("mkdir -p %s && cp -f %s %s", asset_location, "/tmp/geosite.dat", asset_location .. "geosite.dat"))
-									reboot = 1
-									log("geosite 更新成功。")
-									return 1
-								else
-									log("geosite 更新失败，请稍后再试。")
-								end
-								break
-							end
-						end
-					end
-					break
-				end
-			end
-		end
-	end,
-	function(e)
-	end)
-
-	return 0
+	return fetch_geo_asset("geosite.dat", geosite_api)
 end
+
+local function run_task(label, callback)
+	local ok, result = xpcall(callback, function(e)
+		return tostring(e) .. "\n" .. debug.traceback()
+	end)
+	if not ok then
+		update_failed = true
+		log(label .. " 更新发生错误：" .. tostring(result))
+		return false
+	elseif result == false then
+		update_failed = true
+		return false
+	end
+	return true
+end
+
+local function apply_staged_rules()
+	if #staged_rules == 0 then
+		return false
+	end
+	local command = "/etc/init.d/" .. name .. " update_rules " .. shell_quote(rule_publish_dir) .. " >/dev/null 2>&1"
+	local status = luci.sys.call(command)
+	if status ~= 0 then
+		log("规则文件发布或应用失败，原规则文件保持不变。")
+		return false
+	end
+	for _, rule in ipairs(staged_rules) do
+		log(rule.name .. " 更新成功，总规则数 " .. rule.count .. " 条。")
+	end
+	return true
+end
+
 
 if arg2 then
 	string.gsub(arg2, '[^' .. "," .. ']+', function(w)
@@ -403,55 +407,47 @@ else
 	geoip_update = ucic:get_first(name, 'global_rules', "geoip_update", 0)
 	geosite_update = ucic:get_first(name, 'global_rules', "geosite_update", 0)
 end
-if gfwlist_update == 0 and chnroute_update == 0 and chnroute6_update == 0 and chnlist_update == 0 and geoip_update == 0 and geosite_update == 0 then
+
+if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 and (tonumber(chnlist_update) or 0) == 0 and (tonumber(geoip_update) or 0) == 0 and (tonumber(geosite_update) or 0) == 0 then
 	os.exit(0)
 end
 
 log("开始更新规则...")
-if tonumber(gfwlist_update) == 1 then
-	xpcall(fetch_gfwlist,function(e)
-		log(e)
-		log(debug.traceback())
-		log('更新gfwlist发生错误...')
-	end)
+task_tmp_dir = create_task_tmp_dir()
+if task_tmp_dir then
+	rule_publish_dir = task_tmp_dir .. "/rules"
+	nixio.fs.mkdir(rule_publish_dir)
+	if nixio.fs.stat(rule_publish_dir, "type") ~= "dir" then
+		log("规则暂存目录创建失败，跳过本次规则更新。")
+		rule_publish_dir = nil
+		update_failed = true
+	end
+else
+	log("规则更新临时目录创建失败，跳过本次规则更新。")
+	update_failed = true
 end
 
-if tonumber(chnroute_update) == 1 then
-	xpcall(fetch_chnroute,function(e)
-		log(e)
-		log(debug.traceback())
-		log('更新chnroute发生错误...')
-	end)
-end
-
-if tonumber(chnroute6_update) == 1 then
-	xpcall(fetch_chnroute6,function(e)
-		log(e)
-		log(debug.traceback())
-		log('更新chnroute6发生错误...')
-	end)
-end
-
-if tonumber(chnlist_update) == 1 then
-	xpcall(fetch_chnlist,function(e)
-		log(e)
-		log(debug.traceback())
-		log('更新chnlist发生错误...')
-	end)
-end
-
-if tonumber(geoip_update) == 1 then
-	log("geoip 开始更新...")
-	local status = fetch_geoip()
-	os.remove("/tmp/geoip.dat")
-	os.remove("/tmp/geoip.dat.sha256sum")
-end
-
-if tonumber(geosite_update) == 1 then
-	log("geosite 开始更新...")
-	local status = fetch_geosite()
-	os.remove("/tmp/geosite.dat")
-	os.remove("/tmp/geosite.dat.sha256sum")
+if task_tmp_dir and rule_publish_dir then
+	if tonumber(gfwlist_update) == 1 then
+		run_task("gfwlist", fetch_gfwlist)
+	end
+	if tonumber(chnroute_update) == 1 then
+		run_task("chnroute", fetch_chnroute)
+	end
+	if tonumber(chnroute6_update) == 1 then
+		run_task("chnroute6", fetch_chnroute6)
+	end
+	if tonumber(chnlist_update) == 1 then
+		run_task("chnlist", fetch_chnlist)
+	end
+	if tonumber(geoip_update) == 1 then
+		log("geoip 开始更新...")
+		run_task("geoip", fetch_geoip)
+	end
+	if tonumber(geosite_update) == 1 then
+		log("geosite 开始更新...")
+		run_task("geosite", fetch_geosite)
+	end
 end
 
 ucic:set(name, ucic:get_first(name, 'global_rules'), "gfwlist_update", gfwlist_update)
@@ -463,14 +459,23 @@ ucic:set(name, ucic:get_first(name, 'global_rules'), "geosite_update", geosite_u
 ucic:save(name)
 luci.sys.call("uci commit " .. name)
 
-if reboot == 1 then
-	if arg3 == "cron" then
-		if not nixio.fs.access("/var/lock/" .. name .. ".lock") then
-			luci.sys.call("touch /tmp/lock/" .. name .. "_cron.lock")
-		end
+if rule_publish_dir then
+	if #staged_rules > 0 and not apply_staged_rules() then
+		update_failed = true
 	end
+end
+if core_resource_changed then
+	log("核心 geo 资源已变更，重启服务以应用。")
+	local status = luci.sys.call("/etc/init.d/" .. name .. " restart >/dev/null 2>&1")
+	if status ~= 0 then
+		update_failed = true
+		log("核心 geo 资源已更新，但服务重启失败。")
+	end
+end
 
-	log("重启服务，应用新的规则。")
-	luci.sys.call("sh /usr/share/" .. name .. "/nftables.sh flush_nftset_reload > /dev/null 2>&1 &")
+cleanup_task_tmp_dir()
+if update_failed then
+	log("规则更新结束，部分操作失败。")
+	os.exit(1)
 end
 log("规则更新完毕...")

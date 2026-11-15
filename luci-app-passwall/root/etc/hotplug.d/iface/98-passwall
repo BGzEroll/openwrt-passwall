@@ -1,36 +1,13 @@
 #!/bin/sh
 
-[ "$ACTION" = "ifup" ] || [ "$ACTION" = "ifupdate" ] || exit 0
-[ "$(uci -q get "passwall.@global[0].enabled")" = "1" ] || exit 0
-[ -f /var/lock/passwall_ready.lock ] || exit 0
-[ "$ACTION" != "ifupdate" ] || [ -n "$IFUPDATE_ADDRESSES" ] || [ -n "$IFUPDATE_PREFIXES" ] || exit 0
+# Personal topology: WAN, main LAN and the external proxy VLAN only.
+case "$INTERFACE" in wan|wan6|lan|localproxy) ;; *) exit 0 ;; esac
+case "$ACTION" in ifup|ifdown|ifupdate) ;; *) exit 0 ;; esac
+[ -f /var/run/passwall/running ] || exit 0
 
-. /lib/functions/network.sh
-network_find_wan wan_interface
-network_find_wan6 wan6_interface
-
-default_device4=$(ip route show default 2>/dev/null | awk '/^default / { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
-default_device6=$(ip -6 route show default 2>/dev/null | awk '/^default / { for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
-
-relevant=0
-[ -n "$INTERFACE" ] && { [ "$INTERFACE" = "$wan_interface" ] || [ "$INTERFACE" = "$wan6_interface" ]; } && relevant=1
-[ -n "$DEVICE" ] && { [ "$DEVICE" = "$default_device4" ] || [ "$DEVICE" = "$default_device6" ]; } && relevant=1
-
-[ "$relevant" = "1" ] || exit 0
-
-LOCK_FILE_DIR=/var/lock
-[ -d "$LOCK_FILE_DIR" ] || mkdir -p "$LOCK_FILE_DIR"
-LOCK_FILE="${LOCK_FILE_DIR}/passwall_ifup.lock"
-if [ -s "$LOCK_FILE" ]; then
-	SPID=$(cat "$LOCK_FILE")
-	[ -e "/proc/${SPID}/status" ] && exit 1
-	: > "$LOCK_FILE"
-fi
-echo $$ > "$LOCK_FILE"
-
-sleep 10s
-
-/etc/init.d/passwall restart >/dev/null 2>&1 &
-logger -p notice -t network -s "passwall: restart when $INTERFACE $ACTION"
-
-rm -f "$LOCK_FILE"
+# Queue behind the same service lock. Each waiter reads fresh state and skips
+# duplicate notifications; stop removes running before any queued work executes.
+(
+	sleep 1
+	/etc/init.d/passwall reload network
+) >/dev/null 2>&1 &

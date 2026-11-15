@@ -11,7 +11,7 @@ run_case() {
 	mkdir -p "$case_dir/work" "$case_dir/work2" "$case_dir/interfaces"
 	(
 		export TEST_PBR="$pbr"
-		export TEST_LOG="$case_dir/rules.log"
+		export TEST_RULES_FILE="$case_dir/rules.nft"
 		export TMP_PATH="$case_dir/work"
 		export TMP_PATH2="$case_dir/work2"
 		export TMP_IFACE_PATH="$case_dir/interfaces"
@@ -27,45 +27,6 @@ run_case() {
 		export CHN_LIST=direct TCP_PROXY_MODE=proxy UDP_PROXY_MODE=proxy
 		export ISP_DNS= ISP_DNS6= IPT_APPEND_DNS=
 
-		nft() {
-			if [ "${TEST_REAL_NFT:-0}" = "1" ]; then
-				local nft_command="${1:-}"
-				case "$nft_command" in
-					"add flowtable "*"flags offload;"*)
-						# User namespaces cannot provide hardware offload. Load the
-						# same flowtable as software to validate its chains/rules.
-						nft_command="${nft_command/flags offload; /}"
-						set -- "$nft_command"
-					;;
-				esac
-				if /usr/sbin/nft "$@"; then
-					return 0
-				else
-					local status=$?
-					case "$*" in
-						delete\ table\ *|delete\ flowtable\ *) return 0 ;;
-						list\ set\ *|list\ chain\ *) return "$status" ;;
-					esac
-					return "$status"
-				fi
-			fi
-			case "${1:-}" in
-				"list set "*) return 1 ;;
-				"list chain "*) return 1 ;;
-			esac
-			if [ "${1:-}" = "-f" ]; then
-				sed 's/^/FILE: /' "$2" >> "$TEST_LOG"
-			else
-				printf '%s\n' "$*" >> "$TEST_LOG"
-			fi
-		}
-		ip() {
-			printf 'IP: %s\n' "$*" >> "$TEST_LOG"
-			case "$*" in
-				*"rule del fwmark "*) return 1 ;;
-			esac
-			return 0
-		}
 		sysctl() { [ "${1:-}" = "-e" ] && echo 1 || true; }
 		echo_log() { :; }
 		echolog() { echo_log "$@"; }
@@ -134,19 +95,39 @@ run_case() {
 		config_get_type() { config_n_get "$1" type "${2:-}"; }
 		touch "$TMP_IFACE_PATH/proxy0"
 
-		# The OpenWrt network helper is replaced only in this host-side harness.
-		source <(sed 's#^\. /lib/functions/network.sh$#:#' "$SCRIPT") start
+		# Replace only the unavailable OpenWrt network helper, then exercise the
+		# function-library API that emits the complete candidate table.
+		source <(sed 's#^\. /lib/functions/network.sh$#:#' "$SCRIPT")
+		nft_read_config
+		nft_generate > "$TEST_RULES_FILE"
 	)
 }
 
 if [ "${1:-}" = "--netns" ]; then
 	run_case 0
+	/usr/sbin/nft -f "$TEST_TMP/pbr_0/rules.nft"
 	/usr/sbin/nft list table inet passwall >/dev/null
 	/usr/sbin/ip link add eth0 type veth peer name eth1
 	/usr/sbin/ip link set eth0 up
 	/usr/sbin/ip link set eth1 up
 	run_case 1
+	sed 's/flags offload;[[:space:]]*/ /' "$TEST_TMP/pbr_1/rules.nft" > "$TEST_TMP/pbr_1/rules-soft.nft"
+	{
+		printf 'delete table inet passwall\n'
+		cat "$TEST_TMP/pbr_1/rules-soft.nft"
+		printf 'add rule inet passwall missing_chain counter\n'
+	} > "$TEST_TMP/pbr_1/invalid-batch.nft"
+	if /usr/sbin/nft -f "$TEST_TMP/pbr_1/invalid-batch.nft" >/dev/null 2>&1; then
+		echo "invalid nftables replacement unexpectedly loaded" >&2
+		exit 1
+	fi
 	/usr/sbin/nft list table inet passwall >/dev/null
+	/usr/sbin/nft list chain inet passwall PSW_PROXY_TCP4 | grep -q 'tproxy ip to :1041'
+	{
+		printf 'delete table inet passwall\n'
+		cat "$TEST_TMP/pbr_1/rules-soft.nft"
+	} | /usr/sbin/nft -f -
+	/usr/sbin/nft list flowtable inet passwall ft >/dev/null
 	echo "nftables namespace load checks passed"
 	exit 0
 fi
@@ -154,8 +135,8 @@ fi
 run_case 0
 run_case 1
 
-OFF="$TEST_TMP/pbr_0/rules.log"
-ON="$TEST_TMP/pbr_1/rules.log"
+OFF="$TEST_TMP/pbr_0/rules.nft"
+ON="$TEST_TMP/pbr_1/rules.nft"
 
 grep -q 'tproxy ip to :1041' "$OFF"
 grep -q 'tproxy ip6 to :1041' "$OFF"
@@ -166,9 +147,6 @@ grep -q 'PSW_MANGLE_V6 iif lo meta mark 0x1 meta l4proto tcp.*PSW_PROXY_TCP6' "$
 grep -q 'PSW_MANGLE_V6 iif lo meta mark 0x1 meta l4proto udp.*PSW_PROXY_UDP6' "$OFF"
 grep -q 'PSW_OUTPUT_MANGLE.*goto PSW_ROUTE_PROXY' "$OFF"
 ! grep -q 'iif lo meta mark 0x1.*PSW_PROXY_' "$ON"
-grep -q 'IP: route replace default via 192.0.2.2 dev eth9 table 100' "$ON"
-grep -q 'IP: route replace local 0.0.0.0/0 dev lo table 100' "$OFF"
-grep -q 'IP: -6 route replace local ::/0 dev lo table 100' "$OFF"
 grep -q 'add element inet passwall passwall_direct_macs { AA:BB:CC:DD:EE:02 }' "$OFF"
 grep -q 'PSW_MANGLE ether saddr @passwall_direct_macs counter return' "$OFF"
 grep -q 'PSW_MANGLE_V6 ether saddr @passwall_direct_macs counter return' "$OFF"
@@ -203,7 +181,7 @@ dns_dstnat_line=$(grep -n -m1 'dstnat counter jump PSW_DNS_REDIRECT' "$OFF" | cu
 [ "$direct_dstnat_line" -lt "$dns_dstnat_line" ]
 
 if [ -x /usr/sbin/nft ] && unshare -Urn true 2>/dev/null; then
-	unshare -Urn env TEST_REAL_NFT=1 "$0" --netns
+	unshare -Urn "$0" --netns
 else
 	echo "nftables namespace load checks skipped"
 fi

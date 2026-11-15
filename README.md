@@ -2,7 +2,7 @@
 
 基于 OpenWrt Passwall 的个人定制版本。
 
-本 Fork 已收敛为面向 `BGzEroll/immortalwrt` `openwrt-23.05` 的 nftables 专用实现。透明代理只支持 TCP/UDP TPROXY，并支持两种 Proxy Action：
+本 Fork 面向个人固定使用的 `BGzEroll/immortalwrt` `openwrt-23.05`，基线为 fw4、nftables `1.0.8` 和启用 nftset 的 dnsmasq `2.90`。透明代理只支持 TCP/UDP TPROXY，并支持两种 Proxy Action：
 
 > **PBR 关闭时交给 OpenWrt 本机透明代理核心；PBR 开启时通过 Policy Routing 转发至独立透明代理机。**
 
@@ -28,28 +28,28 @@
 
 ---
 
-# 网络拓扑
+# 自用网络拓扑示例
 
-当前实际网络使用两个独立 VLAN / 子网：
+以下是个人自用拓扑示例，不代表仓库默认配置；实际网络、接口与地址均以目标设备的 UCI 配置为准。示例使用两个独立 VLAN / 子网：
 
 | 网络 | VLAN | IPv4 网段 | 用途 |
 | --- | --- | --- | --- |
 | 主网 | VLAN 0 | `192.168.114.0/24` | PC、手机、NAS、服务器等普通终端 |
 | 代理网 | VLAN 114 | `192.168.113.0/24` | 外置透明代理机 |
 
-当前代理机地址：
+示例中的代理机地址：
 
 ```text
 192.168.113.59
 ```
 
-OpenWrt 上代理网对应接口：
+示例中的 OpenWrt 代理网接口：
 
 ```text
 br-lan.114
 ```
 
-因此需要代理的流量会通过：
+在此示例中，需要代理的流量会通过：
 
 ```text
 br-lan.114
@@ -80,7 +80,7 @@ VLAN 114
 
 另外，VLAN ID 与 IPv4 网段编号没有要求必须对应。
 
-例如本网络中：
+例如本示例中：
 
 ```text
 VLAN 114
@@ -405,11 +405,11 @@ Transparent Proxy
 
 ---
 
-# 当前部署示例（需以目标机 UCI 为准）
+# 自用部署示例（实际值以目标机 UCI 为准）
 
-以下是本 Fork 面向的部署示例，并非仓库默认 UCI 值：
+以下是个人部署示例，并非仓库默认 UCI 值：
 
-| 配置项 | 当前值 |
+| 配置项 | 示例值 |
 | --- | --- |
 | TCP 代理方式 | `TPROXY` |
 | IPv6 透明代理 | 开启 |
@@ -646,52 +646,11 @@ PROXY  → 无法正常代理
 
 # Hardware Flow Offloading
 
-本 Fork 对 Policy Routing 与 nftables Flow Offload 的兼容进行了额外处理。
+PBR 开启时，Passwall 创建带 `flags offload` 的专用 nftables flowtable。直连 TCP/UDP 在 packet mark 与 conntrack mark 均不为 `0x1` 时可进入该表。
 
-需要代理的连接使用：
+代理流量另有一条规则：conntrack 原方向、packet mark 为 `0x1` 的 TCP/UDP 连接也会加入 flowtable。该方向保留 table 100 选出的 PBR 下一跳；回程路由由内核从 main 表取得。实际硬件卸载仍取决于设备、驱动和内核支持。
 
-```text
-mark 1
-ct mark 1
-```
-
-进行标记。
-
-普通可 Offload 流量则要求类似：
-
-```text
-mark != 1
-ct mark != 1
-```
-
-因此：
-
-```text
-DIRECT
-   │
-   ▼
-Normal Routing
-   │
-   ▼
-Flow Offload
-```
-
-而：
-
-```text
-PROXY
-   │
-   ▼
-mark 1
-   │
-   ▼
-Policy Routing
-   │
-   ▼
-192.168.113.59
-```
-
-不会因为 Flow Offload 而绕过代理分流。
+PBR 关闭时不会创建这张 PBR 专用 flowtable。
 
 ---
 
@@ -710,7 +669,7 @@ Policy Routing
 硬件流量分载
 ```
 
-本 Fork 会建立与 Policy Routing 兼容的 Flowtable。
+Passwall 会按配置的卸载接口建立 PBR 专用 flowtable，并按上面的 mark 与 conntrack 方向规则决定哪些连接可以加入。
 
 如果之后关闭：
 
@@ -764,6 +723,18 @@ Proxy
 ---
 
 # DNS 与规则分流
+
+## 规则保存与热更新
+
+规则列表保存和“刷新 NFTSET”按钮都调用 `/etc/init.d/passwall reload rules`。该命令以 nftables 全表事务热重载规则，DNS 配置有变化时按需生效，不重启代理核心。
+
+- `start` / `stop` / `restart` 管理完整服务，重复启动不会重复创建进程。
+- `reload rules` 用于规则列表热更新；`reload network` 用于网络事件；不带参数的 `reload` 在核心配置变化时重启服务，否则热更新。
+- 每次有效热更新都重新生成并事务替换整张 `inet passwall` 表，DNS 学习地址和 flowtable 随之重新积累。
+- hotplug 固定关注个人网络中的 `wan`、`wan6`、`lan`、`localproxy`；重复通知读取当前状态后跳过，停止服务后不会被通知重新启动。
+- 下载规则先在独立临时目录校验，再交给统一锁内发布和应用；失败保留旧规则。
+
+运行状态、实际监听端口及最近成功生成的规则保存在 `/var/run/passwall/`，服务操作统一使用 `/var/lock/passwall.lock`。
 
 PBR 模式主要改变的是：
 
@@ -853,31 +824,13 @@ VLAN 0                       │
 
 # 当前实现范围
 
-该定制版本固定针对：
-
-```text
-fw4
-+
-nftables
-```
-
-环境实现。
-
-兼容基线为：
-
-```text
-BGzEroll/immortalwrt openwrt-23.05
-firewall4 / nftables
-dnsmasq 2.90-2（启用 nftset）
-```
-
-客户端透明代理固定使用 TPROXY 与 nftables。
+客户端透明代理固定使用 TPROXY 与 nftables，兼容范围以本文开头列出的个人固定基线为准。
 
 ---
 
 # 已知问题
 
-本 Fork 有意固定兼容 `BGzEroll/immortalwrt` 的 `openwrt-23.05` 与 dnsmasq `2.90-2`，未移植新版 dnsmasq `conf-dir` 自动探测改动；现有全局 dnsmasq 配置注入目录和语义保持不变。
+本 Fork 有意固定兼容 `BGzEroll/immortalwrt` 的 `openwrt-23.05` 与 dnsmasq `2.90`，未移植新版 dnsmasq `conf-dir` 自动探测改动；现有全局 dnsmasq 配置注入目录和语义保持不变。
 
 相关背景可看此 [issue](https://github.com/xiaorouji/openwrt-passwall/issues/3455)。如果未来改变兼容基线，可参考上游 [commit 87051ecf](https://github.com/Openwrt-Passwall/openwrt-passwall/commit/87051ecf1ac3acfe53a5a63e6d59a3fdc18d6453)，但当前版本明确不移植该提交。
 

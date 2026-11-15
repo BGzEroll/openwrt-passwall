@@ -2,69 +2,49 @@
 
 START=99
 STOP=15
+EXTRA_COMMANDS="update_rules"
+EXTRA_HELP="        update_rules <directory>  Publish downloaded text rules and apply them"
 
-CONFIG=passwall
-APP_FILE=/usr/share/${CONFIG}/app.sh
-LOCK_FILE_DIR=/var/lock
-LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}.lock
+APP_FILE=/usr/share/passwall/app.sh
+LOCK_FILE=/var/lock/passwall.lock
 
-set_lock() {
-	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p $LOCK_FILE_DIR
-	exec 999>"$LOCK_FILE"
-	flock -xn 999
-}
-
-unset_lock() {
-	flock -u 999
-	rm -rf "$LOCK_FILE"
-}
-
-unlock() {
-	failcount=1
-	while [ "$failcount" -le 10 ]; do
-		if [ -f "$LOCK_FILE" ]; then
-			let "failcount++"
-			sleep 1s
-			[ "$failcount" -ge 10 ] && unset_lock
-		else
-			break
-		fi
-	done
-}
-
-boot_func() {
-	local delay=$(uci -q get ${CONFIG}.@global_delay[0].start_delay || echo 1)
-	if [ "$delay" -gt 0 ]; then
-		$APP_FILE echolog "执行启动延时 $delay 秒后再启动!"
-		sleep $delay
-	fi
-	restart
-	touch ${LOCK_FILE_DIR}/${CONFIG}_ready.lock
+run_service() {
+	mkdir -p /var/lock
+	(
+		flock -x 9 || exit 1
+		"$APP_FILE" "$@"
+	) 9>"$LOCK_FILE"
 }
 
 boot() {
-	boot_func >/dev/null 2>&1 &
+	(
+		local delay=$(uci -q get 'passwall.@global_delay[0].start_delay')
+		[ "${delay:-0}" -le 0 ] || sleep "$delay"
+		start
+	) >/dev/null 2>&1 &
 }
 
 start() {
-	set_lock
-	[ $? == 1 ] && $APP_FILE echolog "脚本已经在运行，不重复运行，退出." && exit 0
-	$APP_FILE start
-	unset_lock
+	run_service start
 }
 
 stop() {
-	unlock
-	set_lock
-	[ $? == 1 ] && $APP_FILE echolog "停止脚本等待超时，不重复运行，退出." && exit 0
-	$APP_FILE stop
-	unset_lock
+	run_service stop
 }
 
 restart() {
-	set_lock
-	[ $? == 1 ] && $APP_FILE echolog "脚本已经在运行，不重复运行，退出." && exit 0
-	$APP_FILE stop
-	$APP_FILE start
-	unset_lock
+	mkdir -p /var/lock
+	(
+		flock -x 9 || exit 1
+		"$APP_FILE" stop && "$APP_FILE" start
+	) 9>"$LOCK_FILE"
+}
+
+reload() {
+	run_service reload "${1:-config}"
+}
+
+update_rules() {
+	[ -n "$1" ] || return 1
+	run_service update_rules "$1"
 }

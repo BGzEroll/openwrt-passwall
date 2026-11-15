@@ -1,46 +1,26 @@
 #!/bin/sh
 
-CONFIG=passwall
-TMP_PATH=/tmp/etc/$CONFIG
-TMP_SCRIPT_FUNC_PATH=$TMP_PATH/script_func
-LOCK_FILE_DIR=/tmp/lock
-LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}_script.lock
+APP_PATH=/usr/share/passwall
+STATE_PATH=/var/run/passwall
+SCRIPT_PATH=/tmp/etc/passwall/script_func
+exec 9>/var/lock/passwall.lock
 
-config_n_get() {
-	local ret=$(uci -q get $CONFIG.$1.$2 2>/dev/null)
-	echo ${ret:=$3}
-}
-
-config_t_get() {
-	local index=0
-	[ -n "$4" ] && index=$4
-	local ret=$(uci -q get $CONFIG.@$1[$index].$2 2>/dev/null)
-	echo ${ret:=$3}
-}
-
-ENABLED=$(config_t_get global enabled 0)
-[ "$ENABLED" != 1 ] && return 1
-ENABLED=$(config_t_get global_delay start_daemon 0)
-[ "$ENABLED" != 1 ] && return 1
-sleep 58s
-while [ "$ENABLED" -eq 1 ]; do
-	[ -f "$LOCK_FILE" ] && {
-		sleep 6s
-		#continue
-	}
-	touch $LOCK_FILE
-
-	for filename in $(ls ${TMP_SCRIPT_FUNC_PATH}); do
-		cmd=$(cat ${TMP_SCRIPT_FUNC_PATH}/${filename})
-		cmd_check=$(echo $cmd | awk -F '>' '{print $1}')
-		[ -n "$(echo $cmd_check | grep "dns2socks")" ] && cmd_check=$(echo $cmd_check | sed "s#:# #g")
-		icount=$(pgrep -f "$(echo $cmd_check)" | wc -l)
-		if [ $icount = 0 ]; then
-			#echo "${cmd} 进程挂掉，重启" >> /tmp/log/passwall.log
-			eval $(echo "nohup ${cmd} 2>&1 &") >/dev/null 2>&1 &
+while [ -f "$STATE_PATH/running" ]; do
+	sleep 58
+	flock -x 9 || exit 1
+	if [ ! -f "$STATE_PATH/running" ]; then
+		flock -u 9
+		break
+	fi
+	for file in "$SCRIPT_PATH"/*; do
+		[ -f "$file" ] || continue
+		cmd=$(cat "$file")
+		check=${cmd%%>*}
+		case "$check" in *dns2socks*) check=$(echo "$check" | sed 's/:/ /g') ;; esac
+		if ! pgrep -f "$check" >/dev/null; then
+			eval "$cmd 9>&- 2>&1 &"
+			echo $! >> "$STATE_PATH/pids"
 		fi
 	done
-	
-	rm -f $LOCK_FILE
-	sleep 58s
+	flock -u 9
 done

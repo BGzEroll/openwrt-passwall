@@ -6,6 +6,7 @@
 . $IPKG_INSTROOT/lib/functions/service.sh
 
 CONFIG=passwall
+STATE_PATH=/var/run/passwall
 TMP_PATH=/tmp/etc/$CONFIG
 TMP_BIN_PATH=$TMP_PATH/bin
 TMP_SCRIPT_FUNC_PATH=$TMP_PATH/script_func
@@ -19,7 +20,6 @@ TMP_DNSMASQ_PATH=/tmp/dnsmasq.d/passwall
 LOG_FILE=/tmp/log/$CONFIG.log
 APP_PATH=/usr/share/$CONFIG
 RULES_PATH=/usr/share/${CONFIG}/rules
-DNS_N=dnsmasq
 DNS_PORT=15353
 TUN_DNS="127.0.0.1#${DNS_PORT}"
 LOCAL_DNS=119.29.29.29,223.5.5.5
@@ -246,7 +246,9 @@ ln_run() {
 	fi
 	#echo "${file_func} $*" >&2
 	[ -n "${file_func}" ] || echolog "  - 找不到 ${ln_name}，无法启动..."
-	${file_func:-echolog " - ${ln_name}"} "$@" >${output} 2>&1 &
+	[ -n "$file_func" ] && [ -x "$file_func" ] || { APP_LAUNCH_FAILED=1; return 1; }
+	("$file_func" "$@" 9>&- >"$output" 2>&1) &
+	echo $! >> "$STATE_PATH/pids"
 	process_count=$(ls $TMP_SCRIPT_FUNC_PATH | wc -l)
 	process_count=$((process_count + 1))
 	echo "${file_func:-echolog "  - ${ln_name}"} $@ >${output}" > $TMP_SCRIPT_FUNC_PATH/$process_count
@@ -1035,7 +1037,7 @@ start_redir() {
 		local log_file="${proto}.log"
 		eval current_port=\$${proto}_REDIR_PORT
 		local port=$(echo $(get_new_port $current_port $proto))
-		eval ${proto}_REDIR=$port
+		eval ${proto}_REDIR_PORT=$port
 		run_redir node=$node proto=${proto} bind=0.0.0.0 local_port=$port config_file=$config_file log_file=$log_file
 		echo $node > $TMP_ACL_PATH/default/${proto}.id
 	else
@@ -1067,7 +1069,10 @@ clean_crontab() {
 start_crontab() {
 	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED" == 1 ]; then
 		start_daemon=$(config_t_get global_delay start_daemon 0)
-		[ "$start_daemon" = "1" ] && $APP_PATH/monitor.sh > /dev/null 2>&1 &
+		[ "$start_daemon" = "1" ] && {
+			$APP_PATH/monitor.sh 9>&- > /dev/null 2>&1 &
+			echo $! >> "$STATE_PATH/pids"
+		}
 	fi
 
 	[ -f "/tmp/lock/${CONFIG}_cron.lock" ] && {
@@ -1128,7 +1133,8 @@ start_crontab() {
 
 	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED" == 1 ]; then
 		[ "$update_loop" = "1" ] && {
-			$APP_PATH/tasks.sh > /dev/null 2>&1 &
+			$APP_PATH/tasks.sh 9>&- > /dev/null 2>&1 &
+			echo $! >> "$STATE_PATH/pids"
 			echolog "自动更新：启动循环更新进程。"
 		}
 	else
@@ -1331,13 +1337,95 @@ start_dns() {
 		dnsmasq_version=$(dnsmasq -v | grep -i "Dnsmasq version " | awk '{print $3}')
 		[ "$(expr $dnsmasq_version \>= 2.87)" == 0 ] && echolog "Dnsmasq版本低于2.87，有可能无法正常使用！！！"
 	}
-	source $APP_PATH/helper_dnsmasq.sh stretch
-	lua $APP_PATH/helper_dnsmasq_add.lua -FLAG "default" -TMP_DNSMASQ_PATH ${TMP_DNSMASQ_PATH} \
-		-DNSMASQ_CONF_FILE "/tmp/dnsmasq.d/dnsmasq-passwall.conf" -DEFAULT_DNS ${DEFAULT_DNS} -LOCAL_DNS ${LOCAL_DNS} \
-		-TUN_DNS ${TUN_DNS} -REMOTE_FAKEDNS ${fakedns:-0} -USE_DEFAULT_DNS "${USE_DEFAULT_DNS:-direct}" -CHINADNS_DNS ${china_ng_listen:-0} \
-		-USE_DIRECT_LIST "${USE_DIRECT_LIST}" -USE_PROXY_LIST "${USE_PROXY_LIST}" -USE_BLOCK_LIST "${USE_BLOCK_LIST}" -USE_GFW_LIST "${USE_GFW_LIST}" -CHN_LIST "${CHN_LIST}" \
-		-TCP_NODE ${TCP_NODE} -DEFAULT_PROXY_MODE ${TCP_PROXY_MODE} -NO_PROXY_IPV6 ${DNSMASQ_FILTER_PROXY_IPV6:-0} \
-		-NO_LOGIC_LOG ${NO_LOGIC_LOG:-0}
+	CHINADNS_DNS=${china_ng_listen:-0}
+}
+
+app_dns_generate() {
+	local work="$1"
+	mkdir -p "$work/cache"
+	lua "$APP_PATH/helper_dnsmasq_add.lua" -FLAG default \
+		-CACHE_PATH "$work/cache" \
+		-TMP_DNSMASQ_PATH "$work/files" -DNSMASQ_CONF_FILE "$work/entry.conf" \
+		-DEFAULT_DNS "${DEFAULT_DNS:-nil}" -LOCAL_DNS "${LOCAL_DNS:-nil}" \
+		-TUN_DNS "${TUN_DNS:-nil}" -REMOTE_FAKEDNS "${fakedns:-0}" \
+		-USE_DEFAULT_DNS "${USE_DEFAULT_DNS:-direct}" -CHINADNS_DNS "${CHINADNS_DNS:-0}" \
+		-USE_DIRECT_LIST "$USE_DIRECT_LIST" -USE_PROXY_LIST "$USE_PROXY_LIST" \
+		-USE_BLOCK_LIST "$USE_BLOCK_LIST" -USE_GFW_LIST "$USE_GFW_LIST" -CHN_LIST "$CHN_LIST" \
+		-TCP_NODE "$TCP_NODE" -DEFAULT_PROXY_MODE "$TCP_PROXY_MODE" \
+		-NO_PROXY_IPV6 "${DNSMASQ_FILTER_PROXY_IPV6:-0}" -NO_LOGIC_LOG 1 || return 1
+	dnsmasq --test --conf-file="$work/entry.conf" > "$work/dns-check.log" 2>&1 || {
+		echolog "DNS 候选配置检查失败：$(cat "$work/dns-check.log")"
+		return 1
+	}
+	# Publish ordinary files, not a symlink into the temporary generator cache.
+	cp -aL "$work/files" "$work/publish" || return 1
+	sed "s|^conf-dir=.*|conf-dir=$TMP_DNSMASQ_PATH|" "$work/entry.conf" > "$work/publish.conf"
+}
+
+app_dns_signature() {
+	[ -d "$1" ] || return 1
+	(cd "$1" && find . -type f -exec sha256sum '{}' ';' | sort | sha256sum)
+}
+
+app_dns_restart() {
+	local work="$1" server removed=0 status=0 had_delta=0
+	local delta=/tmp/.uci/dhcp
+	# Keep UCI's global upstreams configured, but do not let them race the
+	# default upstream selected by Passwall in the running dnsmasq instance.
+	if grep -q '^server=' /tmp/dnsmasq.d/dnsmasq-passwall.conf 2>/dev/null; then
+		if [ -e "$delta" ]; then
+			cp -p "$delta" "$work/dhcp.delta" || return 1
+			had_delta=1
+		fi
+		for server in $(uci -q get 'dhcp.@dnsmasq[0].server'); do
+			case "$server" in */*) continue ;; esac
+			uci -q del_list "dhcp.@dnsmasq[0].server=$server" || status=1
+			removed=1
+		done
+	fi
+	if [ "$status" = 0 ]; then
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+		status=$?
+	fi
+	if [ "$removed" = 1 ]; then
+		if [ "$had_delta" = 1 ]; then
+			cp -p "$work/dhcp.delta" "$delta" || return 1
+		else
+			rm -f "$delta" || return 1
+		fi
+	fi
+	return "$status"
+}
+
+app_dns_restore() {
+	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
+	rm -rf "$TMP_DNSMASQ_PATH"
+	[ ! -e "$work/old.files" ] || mv "$work/old.files" "$TMP_DNSMASQ_PATH"
+	rm -f "$entry"
+	[ ! -e "$work/old.conf" ] || mv "$work/old.conf" "$entry"
+	app_dns_restart "$work"
+}
+
+app_dns_apply() {
+	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
+	if cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
+		return 0
+	fi
+	mkdir -p /tmp/dnsmasq.d || return 1
+	if [ -e "$entry" ]; then
+		cp -a "$entry" "$work/old.conf" || return 1
+	fi
+	if [ -e "$TMP_DNSMASQ_PATH" ]; then
+		mv "$TMP_DNSMASQ_PATH" "$work/old.files" || return 1
+	fi
+	if ! mv "$work/publish" "$TMP_DNSMASQ_PATH" ||
+		! mv "$work/publish.conf" "$entry" ||
+		! app_dns_restart "$work"; then
+		app_dns_restore "$work"
+		echolog "DNS 配置应用失败，已尝试恢复旧配置。"
+		return 1
+	fi
+	echolog "DNS 配置已更新。"
 }
 
 add_ip2route() {
@@ -1374,54 +1462,223 @@ delete_ip2route() {
 	}
 }
 
-kill_all() {
-	kill -9 $(pidof "$@") >/dev/null 2>&1
+app_core_signature() {
+	# ACL, routing and scheduling changes never require a proxy-core restart.
+	uci -q export "$CONFIG" | awk '
+		/^config / { keep = $2 !~ /^(acl_rule|global_forwarding|global_rules|global_delay)$/ }
+		keep { print }
+	' | sha256sum | cut -d ' ' -f 1
 }
 
+app_runtime_save() {
+	local key
+	mkdir -p "$STATE_PATH/runtime"
+	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS USE_DEFAULT_DNS DNSMASQ_FILTER_PROXY_IPV6 CHINADNS_DNS fakedns; do
+		eval 'printf "%s\n" "${'"$key"':-}"' > "$STATE_PATH/runtime/$key"
+	done
+}
 
-start() {
+app_runtime_load() {
+	local key value
+	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS USE_DEFAULT_DNS DNSMASQ_FILTER_PROXY_IPV6 CHINADNS_DNS fakedns; do
+		[ -f "$STATE_PATH/runtime/$key" ] || continue
+		value=$(cat "$STATE_PATH/runtime/$key")
+		export "$key=$value"
+	done
+}
+
+app_owned_pid() {
+	case "$1" in ''|*[!0-9]*) return 1 ;; esac
+	[ -r "/proc/$1/cmdline" ] || return 1
+	tr '\0' ' ' < "/proc/$1/cmdline" | grep -Fq '/passwall/'
+}
+
+app_processes_stop() {
+	local pid attempt pending
+	[ -f "$STATE_PATH/pids" ] || return 0
+	for pid in $(cat "$STATE_PATH/pids"); do
+		app_owned_pid "$pid" || continue
+		kill "$pid" $(pgrep -P "$pid") 2>/dev/null || :
+	done
+	for attempt in 1 2 3 4; do
+		pending=""
+		for pid in $(cat "$STATE_PATH/pids"); do
+			app_owned_pid "$pid" && pending="$pending $pid"
+		done
+		[ -n "$pending" ] || { rm -f "$STATE_PATH/pids"; return 0; }
+		[ "$attempt" -ne 2 ] || kill -KILL $pending 2>/dev/null
+		sleep 1
+	done
+	echolog "Passwall 进程未能退出，保留 PID，未继续启动。"
+	return 1
+}
+
+app_apply() {
+	local work="$1" routes_changed=0
+	if ! cmp -s "$work/network" "$STATE_PATH/network"; then
+		routes_changed=1
+		nft_routes_save "$work"
+		if ! nft_routes; then
+			nft_routes_restore "$work"
+			echolog "策略路由更新失败，已尝试恢复原路由。"
+			return 1
+		fi
+	fi
+	if ! nft_commit "$work"; then
+		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
+		return 1
+	fi
+	if ! app_dns_apply "$work"; then
+		if [ -s "$STATE_PATH/rules.nft" ]; then nft_restore; else nft_stop; fi
+		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
+		return 1
+	fi
+	mv "$work/rules.nft" "$STATE_PATH/rules.nft" || return 1
+	mv "$work/network" "$STATE_PATH/network" || return 1
+}
+
+app_reload() {
+	local reason="${1:-config}" work old_local_dns="$LOCAL_DNS" old_default_dns="$DEFAULT_DNS" old_append_dns="$IPT_APPEND_DNS"
+	if [ "$reason" = config ]; then
+		[ "$ENABLED" = 1 ] || { app_stop; return $?; }
+		[ -f "$STATE_PATH/running" ] || { app_start; return $?; }
+		if [ "$(app_core_signature)" != "$(cat "$STATE_PATH/core.sha256")" ]; then
+			app_stop && app_start
+			return $?
+		fi
+	fi
+	[ -f "$STATE_PATH/running" ] || return 0
+	app_runtime_load
+	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
+		LOCAL_DNS="$old_local_dns"; DEFAULT_DNS="$old_default_dns"; IPT_APPEND_DNS="$old_append_dns"
+	fi
+	work=$(mktemp -d "$STATE_PATH/reload.XXXXXX") || return 1
+	nft_network_snapshot > "$work/network"
+	if { [ "$reason" = network ] || [ "$reason" = firewall ]; } &&
+		cmp -s "$work/network" "$STATE_PATH/network" && nft list table inet passwall >/dev/null 2>&1; then
+		rm -rf "$work"
+		return 0
+	fi
+	if ! nft_prepare "$work" || ! app_dns_generate "$work"; then
+		rm -rf "$work"
+		return 1
+	fi
+	if ! app_apply "$work"; then
+		rm -rf "$work"
+		return 1
+	fi
+	app_runtime_save
+	rm -rf "$work"
+	echolog "nftables 热更新完成（$reason）。"
+}
+
+app_update_rules() {
+	local source="$1" backup name count=0 failed=0
+	[ -d "$source" ] || return 1
+	backup=$(mktemp -d "$RULES_PATH/.update.XXXXXX") || return 1
+	for name in gfwlist chnroute chnroute6 chnlist; do
+		[ -f "$source/$name" ] || continue
+		[ -s "$source/$name" ] || { rm -rf "$backup"; return 1; }
+		cp "$source/$name" "$backup/$name.new" || { rm -rf "$backup"; return 1; }
+		[ ! -e "$RULES_PATH/$name" ] || cp -p "$RULES_PATH/$name" "$backup/$name.old" || { rm -rf "$backup"; return 1; }
+		count=$((count + 1))
+	done
+	[ "$count" -gt 0 ] || { rm -rf "$backup"; return 1; }
+	for name in gfwlist chnroute chnroute6 chnlist; do
+		[ ! -f "$backup/$name.new" ] || mv "$backup/$name.new" "$RULES_PATH/$name" || { failed=1; break; }
+	done
+	if [ "$failed" = 1 ] || ! app_reload rules; then
+		for name in gfwlist chnroute chnroute6 chnlist; do
+			[ -f "$source/$name" ] || continue
+			if [ -f "$backup/$name.old" ]; then
+				mv "$backup/$name.old" "$RULES_PATH/$name"
+			else
+				rm -f "$RULES_PATH/$name"
+			fi
+		done
+		rm -rf "$backup"
+		echolog "规则应用失败，已保留旧规则文件。"
+		return 1
+	fi
+	rm -rf "$backup"
+	echolog "规则文件发布完成。"
+}
+
+app_start() {
+	[ "$ENABLED" = 1 ] || return 0
+	[ ! -f "$STATE_PATH/running" ] || { app_reload config; return $?; }
 	ulimit -n 65535
-	if [ -z "$(command -v fw4)" ] || [ -z "$(command -v nft)" ]; then
-		echolog "当前专用版本只支持 firewall4 + nftables，透明代理未启动。"
+	if ! command -v fw4 >/dev/null || ! command -v nft >/dev/null ||
+		! dnsmasq --version | grep -q 'Compile time options:.* nftset'; then
+		echolog "需要 firewall4、nftables 和支持 nftset 的 dnsmasq，未启动。"
 		return 1
 	fi
-	if [ -z "$(dnsmasq --version | grep 'Compile time options:.* nftset')" ]; then
-		echolog "Dnsmasq 未启用 nftset 支持，透明代理未启动。"
-		return 1
-	fi
-	check_depends nftables
-	dnsmasq_version=$(dnsmasq -v | grep -i "Dnsmasq version " | awk '{print $3}')
-	[ "$(expr $dnsmasq_version \>= 2.90)" == 0 ] && echolog "Dnsmasq版本低于2.90，当前固定兼容目标为 ImmortalWrt openwrt-23.05 的 dnsmasq 2.90。"
-
-	[ "$ENABLED_DEFAULT_ACL" == 1 ] && {
-		mkdir -p $TMP_ACL_PATH/default
+	mkdir -p "$TMP_PATH" "$TMP_BIN_PATH" "$TMP_SCRIPT_FUNC_PATH" "$TMP_ID_PATH" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_IFACE_PATH" "$TMP_PATH2"
+	APP_LAUNCH_FAILED=0
+	local work
+	work=$(mktemp -d "$STATE_PATH/start.XXXXXX") || return 1
+	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
+		mkdir -p "$TMP_ACL_PATH/default"
 		start_redir TCP
 		start_redir UDP
 		start_dns
-	}
-	source $APP_PATH/nftables.sh start
-	[ "$ENABLED_DEFAULT_ACL" == 1 ] && source $APP_PATH/helper_${DNS_N}.sh logic_restart
+	fi
+	if [ "$APP_LAUNCH_FAILED" = 1 ]; then
+		app_processes_stop
+		rm -rf "$work"
+		return 1
+	fi
+	# Asynchronous launches must still be alive before redirecting client traffic.
+	local pid
+	if [ -f "$STATE_PATH/pids" ]; then
+		sleep 1
+		for pid in $(cat "$STATE_PATH/pids"); do
+			if ! kill -0 "$pid" 2>/dev/null; then
+				echolog "代理/DNS 进程启动失败，未启用透明代理。"
+				app_processes_stop
+				rm -rf "$work"
+				return 1
+			fi
+		done
+	fi
+	if ! nft_prepare "$work" || ! app_dns_generate "$work"; then
+		app_processes_stop
+		rm -rf "$work"
+		return 1
+	fi
+	nft_network_snapshot > "$work/network"
+	nft_bridge_start
+	if ! app_apply "$work"; then
+		nft_bridge_stop
+		app_processes_stop
+		rm -rf "$work"
+		return 1
+	fi
+	app_runtime_save
+	app_core_signature > "$STATE_PATH/core.sha256"
+	nft_include
+	touch "$STATE_PATH/running"
 	start_crontab
-	echolog "运行完成！\n"
+	rm -rf "$work"
+	echolog "Passwall 启动完成。"
 }
 
-stop() {
-	clean_log
-	[ -n "$(nft list chains 2>/dev/null | grep "PSW")" ] && source $APP_PATH/nftables.sh stop
+app_stop() {
+	rm -f "$STATE_PATH/running"
+	nft_stop || return 1
+	nft_bridge_stop
+	[ -z "$FWI" ] || printf '#!/bin/sh\n' > "$FWI"
 	delete_ip2route
-	kill_all v2ray-plugin obfs-local
-	pgrep -f "sleep.*(6s|9s|58s)" | xargs kill -9 >/dev/null 2>&1
-	pgrep -af "${CONFIG}/" | awk '! /app\.sh|subscribe\.lua|rule_update\.lua|tasks\.sh/{print $1}' | xargs kill -9 >/dev/null 2>&1
-	unset V2RAY_LOCATION_ASSET
-	unset XRAY_LOCATION_ASSET
+	app_processes_stop || return 1
 	stop_crontab
-	source $APP_PATH/helper_dnsmasq.sh del
-	source $APP_PATH/helper_dnsmasq.sh restart no_log=1
-	[ -s "$TMP_PATH/bridge_nf_ipt" ] && sysctl -w net.bridge.bridge-nf-call-iptables=$(cat $TMP_PATH/bridge_nf_ipt) >/dev/null 2>&1
-	[ -s "$TMP_PATH/bridge_nf_ip6t" ] && sysctl -w net.bridge.bridge-nf-call-ip6tables=$(cat $TMP_PATH/bridge_nf_ip6t) >/dev/null 2>&1
-	rm -rf ${TMP_PATH}
-	echolog "清空并关闭相关程序和缓存完成。"
-	exit 0
+	if [ -e /tmp/dnsmasq.d/dnsmasq-passwall.conf ]; then
+		rm -f /tmp/dnsmasq.d/dnsmasq-passwall.conf "$DNSMASQ_PATH/dnsmasq-passwall.conf"
+		rm -rf "$TMP_DNSMASQ_PATH"
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1 || return 1
+	fi
+	rm -rf "$TMP_PATH" "$TMP_PATH2" "$STATE_PATH/runtime"
+	rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*
+	echolog "Passwall 已停止。"
 }
 
 ENABLED=$(config_t_get global enabled 0)
@@ -1482,7 +1739,10 @@ DNSMASQ_FILTER_PROXY_IPV6=${FILTER_PROXY_IPV6}
 
 export V2RAY_LOCATION_ASSET=$(config_t_get global_rules v2ray_location_asset "/usr/share/v2ray/")
 export XRAY_LOCATION_ASSET=$V2RAY_LOCATION_ASSET
-mkdir -p /tmp/etc $TMP_PATH $TMP_BIN_PATH $TMP_SCRIPT_FUNC_PATH $TMP_ID_PATH $TMP_ROUTE_PATH $TMP_ACL_PATH $TMP_IFACE_PATH $TMP_PATH2
+mkdir -p "$STATE_PATH" /tmp/etc $TMP_PATH $TMP_BIN_PATH $TMP_SCRIPT_FUNC_PATH $TMP_ID_PATH $TMP_ROUTE_PATH $TMP_ACL_PATH $TMP_IFACE_PATH $TMP_PATH2
+
+# nftables.sh is a library, never a second command dispatcher.
+. "$APP_PATH/nftables.sh"
 
 arg1=$1
 shift
@@ -1503,9 +1763,15 @@ echolog)
 	echolog $@
 	;;
 stop)
-	stop
+	app_stop
 	;;
 start)
-	start
+	app_start
+	;;
+reload)
+	app_reload "${1:-config}"
+	;;
+update_rules)
+	app_update_rules "$1"
 	;;
 esac

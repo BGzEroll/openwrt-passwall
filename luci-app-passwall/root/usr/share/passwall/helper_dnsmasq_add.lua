@@ -21,7 +21,7 @@ local CHN_LIST = var["-CHN_LIST"]
 local DEFAULT_PROXY_MODE = var["-DEFAULT_PROXY_MODE"]
 local NO_PROXY_IPV6 = var["-NO_PROXY_IPV6"]
 local NO_LOGIC_LOG = var["-NO_LOGIC_LOG"]
-local CACHE_PATH = api.CACHE_PATH
+local CACHE_PATH = var["-CACHE_PATH"] or api.CACHE_PATH
 local CACHE_FLAG = "dnsmasq_" .. FLAG
 local CACHE_DNS_PATH = CACHE_PATH .. "/" .. CACHE_FLAG
 local CACHE_TEXT_FILE = CACHE_DNS_PATH .. ".txt"
@@ -468,12 +468,6 @@ if DNSMASQ_CONF_FILE ~= "nil" then
 		conf_out:write("no-resolv\n")
 		conf_out:close()
 		log(string.format("  - 默认：%s", dnsmasq_default_dns))
-
-		if FLAG == "default" then
-			local f_out = io.open("/tmp/etc/passwall/default_DNS", "a")
-			f_out:write(DEFAULT_DNS)
-			f_out:close()
-		end
 	end
 end
 
