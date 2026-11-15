@@ -16,7 +16,6 @@ local USE_BLOCK_LIST = var["-USE_BLOCK_LIST"]
 local USE_GFW_LIST = var["-USE_GFW_LIST"]
 local CHN_LIST = var["-CHN_LIST"]
 local DEFAULT_PROXY_MODE = var["-DEFAULT_PROXY_MODE"]
-local NO_PROXY_IPV6 = var["-NO_PROXY_IPV6"]
 local NO_LOGIC_LOG = var["-NO_LOGIC_LOG"]
 
 local uci = api.uci
@@ -239,7 +238,6 @@ do
 
 	local fwd_dns
 	local ipset_flag
-	local no_ipv6
 
 	--始终用国内DNS解析节点域名
 	if true then
@@ -293,10 +291,6 @@ do
 					if line ~= "" and not line:find("#") then
 						add_excluded_domain(line)
 						local ipset_flag = setflag_4 .. "passwall_blacklist," .. setflag_6 .. "passwall_blacklist6"
-						if NO_PROXY_IPV6 == "1" then
-							set_domain_address(line, "::")
-							ipset_flag = setflag_4 .. "passwall_blacklist"
-						end
 						if REMOTE_FAKEDNS == "1" then
 							ipset_flag = nil
 						end
@@ -318,18 +312,12 @@ do
 			end
 			if fwd_dns then
 				local ipset_flag = setflag_4 .. "passwall_gfwlist," .. setflag_6 .. "passwall_gfwlist6"
-				if NO_PROXY_IPV6 == "1" then
-					ipset_flag = setflag_4 .. "passwall_gfwlist"
-				end
 				if REMOTE_FAKEDNS == "1" then
 					ipset_flag = nil
 				end
 				for _, line in ipairs(read_lines("/usr/share/passwall/rules/gfwlist")) do
 					line = line:gsub("\r$", "")
 					if line ~= "" and not line:find("^#") and not check_excluded_domain(line) then
-						if NO_PROXY_IPV6 == "1" then
-							set_domain_address(line, "::")
-						end
 						if dnsmasq_default_dns == fwd_dns then
 							fwd_dns = nil
 						else
@@ -359,7 +347,6 @@ do
 
 				fwd_dns = nil
 				ipset_flag = nil
-				no_ipv6 = nil
 
 				if _node_id == "_direct" then
 					fwd_dns = LOCAL_DNS
@@ -367,10 +354,6 @@ do
 				else
 					fwd_dns = TUN_DNS
 					ipset_flag = setflag_4 .. "passwall_shuntlist," .. setflag_6 .. "passwall_shuntlist6"
-					if NO_PROXY_IPV6 == "1" then
-						ipset_flag = setflag_4 .. "passwall_shuntlist"
-						no_ipv6 = true
-					end
 					if not only_global then
 						if REMOTE_FAKEDNS == "1" then
 							ipset_flag = nil
@@ -386,9 +369,6 @@ do
 						end
 						add_excluded_domain(line)
 
-						if no_ipv6 then
-							set_domain_address(line, "::")
-						end
 						set_domain_dns(line, fwd_dns)
 						set_domain_ipset(line, ipset_flag)
 					end
@@ -398,16 +378,6 @@ do
 				end
 			end
 		end)
-	elseif only_global == 1 and NO_PROXY_IPV6 == "1" then
-		--节点：固定节点
-		--代理模式：全局模式
-		--过滤代理域名 IPv6：启用
-		--禁止解析所有IPv6记录
-		list1["#"] = {
-			dns = {},
-			ipsets = {},
-			address = "::"
-		}
 	end
 end
 
@@ -425,9 +395,6 @@ for _, key in ipairs(domains) do
 	local value = list1[key]
 	if value.address then
 		local domain = "." .. key
-		if key == "#" then
-			domain = key
-		end
 		addresses[#addresses + 1] = string.format("address=/%s/%s\n", domain, value.address)
 	end
 	if value.dns and #value.dns > 0 then

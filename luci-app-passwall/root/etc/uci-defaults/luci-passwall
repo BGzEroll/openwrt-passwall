@@ -59,6 +59,7 @@ for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p
 		uci set "passwall.$node.transport=tcp"
 	fi
 done
+uci -q delete 'passwall.@global[0].filter_proxy_ipv6'
 uci commit passwall
 
 chmod +x /usr/share/passwall/*.sh

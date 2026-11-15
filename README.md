@@ -20,6 +20,7 @@
 - 不支持 GeoIP/GeoSite 数据或表达式；规则更新仅处理 GFW 域名表及中国 IPv4/IPv6 文本列表，支持手动更新和每日/每周 cron，不提供循环更新进程。
 - 规则列表分别显示中国 IPv4 和 IPv6 内容；不使用中国域名表，ChinaDNS-NG 按中国 IP 地址表判断解析结果。
 - 不提供 dns2socks 和 DoT；保留 UDP、TCP 及核心提供的 DoH。独立 Socks 节点类型已移除，SOCKS 上游使用 Xray 或 sing-box 的 SOCKS 协议。
+- DNS 正常查询和处理 IPv4/IPv6，不提供代理域名 IPv6 过滤开关。
 
 ## 专用架构约束
 

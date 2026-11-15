@@ -396,13 +396,11 @@ function gen_config(var)
 	local direct_dns_port = var["-direct_dns_port"]
 	local direct_dns_udp_server = var["-direct_dns_udp_server"]
 	local direct_dns_tcp_server = var["-direct_dns_tcp_server"]
-	local direct_dns_query_strategy = var["-direct_dns_query_strategy"]
 	local remote_dns_port = var["-remote_dns_port"]
 	local remote_dns_udp_server = var["-remote_dns_udp_server"]
 	local remote_dns_tcp_server = var["-remote_dns_tcp_server"]
 	local remote_dns_doh_url = var["-remote_dns_doh_url"]
 	local remote_dns_doh_host = var["-remote_dns_doh_host"]
-	local remote_dns_query_strategy = var["-remote_dns_query_strategy"]
 	local remote_dns_fake = var["-remote_dns_fake"]
 	local dns_cache = var["-dns_cache"]
 	local dns_socks_address = var["-dns_socks_address"]
@@ -828,17 +826,11 @@ function gen_config(var)
 			})
 		end
 
-		local remote_strategy = "prefer_ipv6"
-		if remote_dns_query_strategy == "UseIPv4" then
-			remote_strategy = "ipv4_only"
-		elseif remote_dns_query_strategy == "UseIPv6" then
-			remote_strategy = "ipv6_only"
-		end
 
 		local remote_server = {
 			tag = "remote",
 			address_strategy = "prefer_ipv4",
-			strategy = remote_strategy,
+			strategy = "prefer_ipv6",
 			address_resolver = "direct",
 			detour = default_outTag,
 		}
@@ -871,7 +863,7 @@ function gen_config(var)
 			table.insert(dns.servers, {
 				tag = fakedns_tag,
 				address = "fakeip",
-				strategy = remote_strategy,
+				strategy = "prefer_ipv6",
 			})
 
 			if not experimental then
@@ -897,12 +889,6 @@ function gen_config(var)
 				})
 			end
 	
-			local direct_strategy = "prefer_ipv6"
-			if direct_dns_query_strategy == "UseIPv4" then
-				direct_strategy = "ipv4_only"
-			elseif direct_dns_query_strategy == "UseIPv6" then
-				direct_strategy = "ipv6_only"
-			end
 
 			local direct_dns_server, port
 			if direct_dns_udp_server then
@@ -917,7 +903,7 @@ function gen_config(var)
 				tag = "direct",
 				address = direct_dns_server,
 				address_strategy = "prefer_ipv6",
-				strategy = direct_strategy,
+				strategy = "prefer_ipv6",
 				detour = "direct",
 			})
 		end

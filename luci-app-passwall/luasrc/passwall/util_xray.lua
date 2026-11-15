@@ -282,7 +282,6 @@ function gen_config(var)
 	local local_http_username = var["-local_http_username"]
 	local local_http_password = var["-local_http_password"]
 	local dns_listen_port = var["-dns_listen_port"]
-	local dns_query_strategy = var["-dns_query_strategy"]
 	local remote_dns_tcp_server = var["-remote_dns_tcp_server"]
 	local remote_dns_tcp_port = var["-remote_dns_tcp_port"]
 	local remote_dns_doh_url = var["-remote_dns_doh_url"]
@@ -792,7 +791,7 @@ function gen_config(var)
 			disableFallbackIfMatch = true,
 			servers = {},
 			clientIp = (dns_client_ip and dns_client_ip ~= "") and dns_client_ip or nil,
-			queryStrategy = (dns_query_strategy and dns_query_strategy ~= "") and dns_query_strategy or "UseIPv4"
+			queryStrategy = "UseIP"
 		}
 
 		local _remote_dns = {
@@ -981,7 +980,7 @@ function gen_config(var)
 				protocol = "freedom",
 				tag = "fragment",
 				settings = {
-					domainStrategy = (direct_dns_query_strategy and direct_dns_query_strategy ~= "") and direct_dns_query_strategy or "UseIP",
+					domainStrategy = "UseIP",
 					fragment = {
 						packets = (xray_settings.fragment_packets and xray_settings.fragment_packets ~= "") and xray_settings.fragment_packets,
 						length = (xray_settings.fragment_length and xray_settings.fragment_length ~= "") and xray_settings.fragment_length,
@@ -1001,7 +1000,7 @@ function gen_config(var)
 			protocol = "freedom",
 			tag = "direct",
 			settings = {
-				domainStrategy = (dns_query_strategy and dns_query_strategy ~= "") and dns_query_strategy or "UseIPv4"
+				domainStrategy = "UseIP"
 			},
 			streamSettings = {
 				sockopt = {

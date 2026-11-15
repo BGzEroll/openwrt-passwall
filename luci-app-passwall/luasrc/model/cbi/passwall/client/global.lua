@@ -251,9 +251,6 @@ o:value("180.184.1.1")
 o:value("180.184.2.2")
 o:depends("direct_dns_mode", "tcp")
 
-o = s:taboption("DNS", Flag, "filter_proxy_ipv6", translate("Filter Proxy Host IPv6"), translate("Experimental feature."))
-o.default = "0"
-
 ---- DNS Forward Mode
 dns_mode = s:taboption("DNS", ListValue, "dns_mode", translate("Filter Mode"))
 dns_mode:value("udp", translatef("Requery DNS By %s", "UDP"))

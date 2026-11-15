@@ -3,7 +3,6 @@ config global
 	option tcp_node 'nil'
 	option udp_node 'nil'
 	option tcp_node_socks_port '1070'
-	option filter_proxy_ipv6 '0'
 	option dns_shunt 'chinadns-ng'
 	option dns_mode 'tcp'
 	option remote_dns '1.1.1.1'
