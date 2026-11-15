@@ -46,18 +46,12 @@ function gen_outbound(flag, node, tag, proxy_table)
 			if tag and node_id and tag ~= node_id then
 				config_file = string.format("%s_%s_%s_%s.json", flag, tag, node_id, new_port)
 			end
-			sys.call(string.format('/usr/share/%s/app.sh run_socks "%s"> /dev/null',
-				appname,
-				string.format("flag=%s node=%s bind=%s socks_port=%s config_file=%s relay_port=%s",
-					new_port, --flag
-					node_id, --node
-					"127.0.0.1", --bind
-					new_port, --socks port
-					config_file, --config file
-					(proxy == 1 and relay_port) and tostring(relay_port) or "" --relay port
-					)
-				)
-			)
+			local args = {"flag=" .. new_port, "node=" .. node_id, "bind=127.0.0.1",
+				"socks_port=" .. new_port, "config_file=" .. config_file,
+				"relay_port=" .. ((proxy == 1 and relay_port) and tostring(relay_port) or "")}
+			for i, value in ipairs(args) do args[i] = api.util.shellquote(value) end
+			assert(sys.call("/usr/share/passwall/app.sh run_socks " .. table.concat(args, " ") .. " >/dev/null") == 0,
+				"Failed to generate relay core")
 			node = {
 				protocol = "socks",
 				address = "127.0.0.1",
@@ -402,7 +396,6 @@ function gen_config(var)
 	local direct_dns_port = var["-direct_dns_port"]
 	local direct_dns_udp_server = var["-direct_dns_udp_server"]
 	local direct_dns_tcp_server = var["-direct_dns_tcp_server"]
-	local direct_dns_dot_server = var["-direct_dns_dot_server"]
 	local direct_dns_query_strategy = var["-direct_dns_query_strategy"]
 	local remote_dns_port = var["-remote_dns_port"]
 	local remote_dns_udp_server = var["-remote_dns_udp_server"]
@@ -638,7 +631,7 @@ function gen_config(var)
 							}
 							table.insert(outbounds, _outbound)
 							rule_outboundTag = rule_name
-							sys.call("touch /tmp/etc/passwall/iface/" .. _node.iface)
+							fs.writefile((os.getenv("PASSWALL_TMP_PATH") or "/tmp/etc/passwall") .. "/iface/" .. _node.iface, "")
 						end
 					end
 				end
@@ -797,7 +790,7 @@ function gen_config(var)
 				table.insert(outbounds, outbound)
 				default_outTag = outbound.tag
 				route.final = default_outTag
-				sys.call("touch /tmp/etc/passwall/iface/" .. node.iface)
+				fs.writefile((os.getenv("PASSWALL_TMP_PATH") or "/tmp/etc/passwall") .. "/iface/" .. node.iface, "")
 			end
 		else
 			local outbound = gen_outbound(flag, node)
@@ -891,7 +884,7 @@ function gen_config(var)
 			}
 		end
 	
-		if direct_dns_udp_server or direct_dns_tcp_server or direct_dns_dot_server then
+		if direct_dns_udp_server or direct_dns_tcp_server then
 			local domain = {}
 			local nodes_domain_text = sys.exec('uci show passwall | grep ".address=" | cut -d "\'" -f 2 | grep "[a-zA-Z]$" | sort -u')
 			string.gsub(nodes_domain_text, '[^' .. "\r\n" .. ']+', function(w)
@@ -918,13 +911,6 @@ function gen_config(var)
 			elseif direct_dns_tcp_server then
 				port = tonumber(direct_dns_port) or 53
 				direct_dns_server = "tcp://" .. direct_dns_tcp_server .. ":" .. port
-			elseif direct_dns_dot_server then
-				port = tonumber(direct_dns_port) or 853
-				if direct_dns_dot_server:find(":") == nil then
-					direct_dns_server = "tls://" .. direct_dns_dot_server .. ":" .. port
-				else
-					direct_dns_server = "tls://[" .. direct_dns_dot_server .. "]:" .. port
-				end
 			end
 	
 			table.insert(dns.servers, {

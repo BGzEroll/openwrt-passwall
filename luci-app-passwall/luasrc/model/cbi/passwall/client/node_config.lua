@@ -21,48 +21,6 @@ o.rmempty = false
 
 o = s:option(ListValue, "type", translate("Type"))
 
-if api.is_finded("ipt2socks") then
-	s.fields["type"]:value("Socks", translate("Socks"))
-
-	o = s:option(Value, "socks_address", translate("Address (Support Domain Name)"))
-	o:depends("type", "Socks")
-	function o.cfgvalue(self, section)
-		return m:get(section, "address")
-	end
-	function o.write(self, section, value)
-		m:set(section, "address", value)
-	end
-
-	o = s:option(Value, "socks_port", translate("Port"))
-	o.datatype = "port"
-	o:depends("type", "Socks")
-	function o.cfgvalue(self, section)
-		return m:get(section, "port")
-	end
-	function o.write(self, section, value)
-		m:set(section, "port", value)
-	end
-
-	o = s:option(Value, "socks_username", translate("Username"))
-	o:depends("type", "Socks")
-	function o.cfgvalue(self, section)
-		return m:get(section, "username")
-	end
-	function o.write(self, section, value)
-		m:set(section, "username", value)
-	end
-	
-	o = s:option(Value, "socks_password", translate("Password"))
-	o.password = true
-	o:depends("type", "Socks")
-	function o.cfgvalue(self, section)
-		return m:get(section, "password")
-	end
-	function o.write(self, section, value)
-		m:set(section, "password", value)
-	end
-end
-
 local type_table = {}
 for filename in fs.dir(types_dir) do
 	table.insert(type_table, filename)

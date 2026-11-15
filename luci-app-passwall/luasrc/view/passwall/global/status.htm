@@ -5,12 +5,12 @@ local api = require "luci.passwall.api"
 <style>
 	.status-grid {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 		gap: 1rem;
 	}
 	.status-card {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		min-width: 0;
 		padding: 1rem;
 		border: 1px solid rgba(0, 0, 0, .05);
@@ -21,37 +21,46 @@ local api = require "luci.passwall.api"
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		flex: 0 0 48px;
-		height: 48px;
+		flex: 0 0 44px;
+		height: 44px;
 		margin-right: 1rem;
 		border-radius: 50%;
 		color: #fff;
 		font-size: .75rem;
 		font-weight: 700;
 	}
-	.status-icon.tcp { background: #2eb8ce; }
-	.status-icon.udp { background: #f7ad39; }
+	.status-icon.service { background: #2eb8ce; }
+	.status-icon.forwarding { background: #f7ad39; }
 	.status-icon.dns { background: #2f98e8; }
+	.status-icon.core { background: #7657c8; }
 	.status-card h4 {
 		margin: 0;
 		color: #8898aa !important;
 		font-size: .8125rem;
 		font-weight: 600;
-		line-height: 1.8em;
+		line-height: 1.5em;
 	}
-	.green {
+	.status-copy { min-width: 0; }
+	.status-value {
+		display: inline-block;
 		color: #2dce89;
 		font-size: .9rem;
+		line-height: 1.7em;
 	}
-	.red {
+	.status-value.bad {
 		color: #fb6340;
-		font-size: .9rem;
+	}
+	.status-value.muted { color: #8898aa; }
+	.status-detail {
+		display: block;
+		margin-top: .25rem;
+		color: #8898aa;
+		font-size: .75rem;
+		line-height: 1.5em;
+		overflow-wrap: anywhere;
 	}
 	@media screen and (max-width: 720px) {
-		.status-grid {
-			grid-template-columns: 1fr;
-			gap: .4rem;
-		}
+		.status-grid { grid-template-columns: 1fr; gap: .4rem; }
 	}
 </style>
 
@@ -59,34 +68,67 @@ local api = require "luci.passwall.api"
 	<legend><%:Running Status%></legend>
 	<div class="status-grid">
 		<div class="status-card">
-			<div class="status-icon tcp">TCP</div>
-			<h4 id="status_tcp_node">TCP<br /><span class="red"><%:NOT RUNNING%></span></h4>
+			<div class="status-icon service">SVC</div>
+			<div class="status-copy">
+				<h4><%:Passwall Service%></h4>
+				<span id="status_service" class="status-value muted">—</span>
+				<small id="status_service_detail" class="status-detail"></small>
+			</div>
 		</div>
 		<div class="status-card">
-			<div class="status-icon udp">UDP</div>
-			<h4 id="status_udp_node">UDP<br /><span class="red"><%:NOT RUNNING%></span></h4>
+			<div class="status-icon forwarding">PBR</div>
+			<div class="status-copy">
+				<h4 id="status_forwarding_title"><%:转发模式%></h4>
+				<span id="status_forwarding" class="status-value muted">—</span>
+				<small id="status_forwarding_detail" class="status-detail"></small>
+			</div>
 		</div>
 		<div class="status-card">
 			<div class="status-icon dns">DNS</div>
-			<h4 id="status_dns">DNS<br /><span class="red"><%:NOT RUNNING%></span></h4>
+			<div class="status-copy">
+				<h4><%:DNS%></h4>
+				<span id="status_dns" class="status-value muted">—</span>
+				<small id="status_dns_detail" class="status-detail"></small>
+			</div>
+		</div>
+		<div class="status-card">
+			<div class="status-icon core">CORE</div>
+			<div class="status-copy">
+				<h4><%:核心 / SOCKS%></h4>
+				<span id="status_core" class="status-value muted">—</span>
+				<small id="status_core_detail" class="status-detail"></small>
+			</div>
 		</div>
 	</div>
 	<script>
 		//<![CDATA[
-		function update_status(id, name, running) {
+		var statusLabels = {
+			running: '<%:RUNNING%>', ready: '<%:已就绪%>', configured: '<%:已配置%>',
+			not_running: '<%:NOT RUNNING%>', not_ready: '<%:未就绪%>',
+			degraded: '<%:部分异常%>', disabled: '<%:已关闭%>',
+			not_required: '<%:无需运行%>'
+		};
+
+		function update_status(id, value, detail) {
 			var element = document.getElementById(id);
-			if (element) {
-				element.innerHTML = name + '<br /><span class="' + (running ? 'green' : 'red') + '">' +
-					(running ? '<%:RUNNING%>' : '<%:NOT RUNNING%>') + '</span>';
-			}
+			if (!element) return;
+			var label = statusLabels[value] || value || '—';
+			element.textContent = label;
+			element.className = 'status-value ' + (
+				value === 'running' || value === 'ready' || value === 'configured' ? '' :
+				(value === 'disabled' || value === 'not_running' || value === 'not_ready' || value === 'degraded' ? 'bad' : 'muted')
+			);
+			var detailElement = document.getElementById(id + '_detail');
+			if (detailElement) detailElement.textContent = detail || '';
 		}
 
 		XHR.poll(5, '<%=api.url("index_status")%>', null, function (x, data) {
-			if (data) {
-				update_status('status_tcp_node', 'TCP', data.tcp_node_status);
-				update_status('status_udp_node', 'UDP', data.udp_node_status);
-				update_status('status_dns', 'DNS', data.dns_mode_status);
-			}
+			if (!data) return;
+			document.getElementById('status_forwarding_title').textContent = data.forwarding_mode || '<%:转发模式%>';
+			update_status('status_service', data.service_status, data.service_detail);
+			update_status('status_forwarding', data.forwarding_status, data.forwarding_detail);
+			update_status('status_dns', data.dns_status, data.dns_detail);
+			update_status('status_core', data.core_status, data.core_detail);
 		});
 		//]]>
 	</script>

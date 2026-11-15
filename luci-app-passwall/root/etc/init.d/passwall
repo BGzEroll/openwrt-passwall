@@ -7,43 +7,43 @@ EXTRA_HELP="        update_rules <directory>  Publish downloaded text rules and 
 
 APP_FILE=/usr/share/passwall/app.sh
 LOCK_FILE=/var/lock/passwall.lock
+BOOT_TOKEN=/var/run/passwall/boot.pending
 
 run_service() {
 	mkdir -p /var/lock
 	(
 		flock -x 9 || exit 1
+		case "$1" in start|stop|restart) rm -f "$BOOT_TOKEN" ;; esac
 		"$APP_FILE" "$@"
 	) 9>"$LOCK_FILE"
 }
 
 boot() {
-	(
-		local delay=$(uci -q get 'passwall.@global_delay[0].start_delay')
-		[ "${delay:-0}" -le 0 ] || sleep "$delay"
-		start
-	) >/dev/null 2>&1 &
-}
-
-start() {
-	run_service start
-}
-
-stop() {
-	run_service stop
-}
-
-restart() {
-	mkdir -p /var/lock
+	mkdir -p /var/lock /var/run/passwall
 	(
 		flock -x 9 || exit 1
-		"$APP_FILE" stop && "$APP_FILE" start
+		local delay token
+		delay=$(uci -q get 'passwall.@global_delay[0].start_delay')
+		case "$delay" in ''|*[!0-9]*) delay=0 ;; esac
+		token=$(cat /proc/sys/kernel/random/uuid)
+		printf '%s\n' "$token" > "$BOOT_TOKEN"
+		(
+			exec 9>&-
+			sleep "$delay"
+			(
+				flock -x 9 || exit 1
+				[ "$(cat "$BOOT_TOKEN" 2>/dev/null)" = "$token" ] || exit 0
+				rm -f "$BOOT_TOKEN"
+				"$APP_FILE" start
+			) 9>"$LOCK_FILE"
+		) >/dev/null 2>&1 &
 	) 9>"$LOCK_FILE"
 }
 
-reload() {
-	run_service reload "${1:-config}"
-}
-
+start() { run_service start; }
+stop() { run_service stop; }
+restart() { run_service restart; }
+reload() { run_service reload "${1:-config}"; }
 update_rules() {
 	[ -n "$1" ] || return 1
 	run_service update_rules "$1"

@@ -26,8 +26,8 @@ PKG_CONFIG_DEPENDS:= \
 LUCI_TITLE:=LuCI support for PassWall
 LUCI_PKGARCH:=all
 LUCI_DEPENDS:=+coreutils +curl \
-	+chinadns-ng +dns2socks +dns2tcp +dnsmasq-full +ip-full \
-	+libuci-lua +lua +luci-compat +luci-lib-jsonc \
+	+chinadns-ng +dns2tcp +dnsmasq-full +ip-full \
+	+libuci-lua +libubus-lua +lua +luci-compat +luci-lib-jsonc \
 	+resolveip +tcping +ipt2socks +nftables \
 	+kmod-nft-nat +kmod-nft-socket +kmod-nft-tproxy
 

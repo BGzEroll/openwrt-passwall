@@ -695,14 +695,16 @@ nft_routes() {
 }
 
 nft_stop() {
+	local failed=0
 	if nft list table $NFTABLE_NAME >/dev/null 2>&1; then
-		nft delete table $NFTABLE_NAME || return 1
+		nft delete table $NFTABLE_NAME || failed=1
 	fi
 	local family
 	for family in 4 6; do
 		while ip -$family rule del fwmark "$PROXY_MARK" lookup "$PROXY_ROUTE_TABLE" 2>/dev/null; do :; done
 		ip -$family route flush table "$PROXY_ROUTE_TABLE" 2>/dev/null || :
 	done
+	return "$failed"
 }
 
 nft_network_snapshot() {

@@ -1,12 +1,9 @@
-require "luci.sys"
 local api = require "luci.passwall.api"
 local appname = "passwall"
 
 local var = api.get_args(arg)
-local FLAG = var["-FLAG"]
 local TMP_DNSMASQ_PATH = var["-TMP_DNSMASQ_PATH"]
 local DNSMASQ_CONF_FILE = var["-DNSMASQ_CONF_FILE"]
-local DEFAULT_DNS = var["-DEFAULT_DNS"]
 local LOCAL_DNS = var["-LOCAL_DNS"]
 local TUN_DNS = var["-TUN_DNS"]
 local REMOTE_FAKEDNS = var["-REMOTE_FAKEDNS"]
@@ -21,19 +18,13 @@ local CHN_LIST = var["-CHN_LIST"]
 local DEFAULT_PROXY_MODE = var["-DEFAULT_PROXY_MODE"]
 local NO_PROXY_IPV6 = var["-NO_PROXY_IPV6"]
 local NO_LOGIC_LOG = var["-NO_LOGIC_LOG"]
-local CACHE_PATH = var["-CACHE_PATH"] or api.CACHE_PATH
-local CACHE_FLAG = "dnsmasq_" .. FLAG
-local CACHE_DNS_PATH = CACHE_PATH .. "/" .. CACHE_FLAG
-local CACHE_TEXT_FILE = CACHE_DNS_PATH .. ".txt"
 
 local uci = api.uci
-local sys = api.sys
 local fs = api.fs
 local datatypes = api.datatypes
 
 local list1 = {}
 local excluded_domain = {}
-local excluded_domain_str = "!"
 
 local function log(...)
 	if NO_LOGIC_LOG == "1" then
@@ -41,6 +32,73 @@ local function log(...)
 	end
 	api.log(...)
 end
+
+local function fail_file(action, path, err)
+	error(string.format("%s %s: %s", action, path, tostring(err)), 0)
+end
+
+local function read_lines(path)
+	local input, err = io.open(path, "r")
+	if not input then
+		fail_file("cannot read", path, err)
+	end
+
+	local lines = {}
+	while true do
+		local line, read_err = input:read("*l")
+		if line == nil then
+			if read_err then
+				input:close()
+				fail_file("cannot read", path, read_err)
+			end
+			break
+		end
+		lines[#lines + 1] = line
+	end
+
+	local ok, close_err = input:close()
+	if not ok then
+		fail_file("cannot close", path, close_err)
+	end
+	return lines
+end
+
+local function write_file(path, content)
+	local output, err = io.open(path, "w")
+	if not output then
+		fail_file("cannot write", path, err)
+	end
+
+	local ok, write_err = output:write(content)
+	if not ok then
+		output:close()
+		fail_file("cannot write", path, write_err)
+	end
+
+	local close_ok, close_err = output:close()
+	if not close_ok then
+		fail_file("cannot close", path, close_err)
+	end
+end
+
+local function ensure_output_dir(path)
+	if not path or path == "" then
+		error("missing -TMP_DNSMASQ_PATH", 0)
+	end
+	local ok, err = fs.mkdir(path)
+	if not ok and not fs.access(path) then
+		fail_file("cannot create directory", path, err)
+	end
+end
+
+local function output_path(name)
+	if TMP_DNSMASQ_PATH:sub(-1) == "/" then
+		return TMP_DNSMASQ_PATH .. name
+	end
+	return TMP_DNSMASQ_PATH .. "/" .. name
+end
+
+ensure_output_dir(TMP_DNSMASQ_PATH)
 
 local function check_dns(domain, dns)
 	if domain == "" or domain:find("#") then
@@ -132,7 +190,6 @@ local function add_excluded_domain(domain)
 		return
 	end
 	table.insert(excluded_domain, domain)
-	excluded_domain_str = excluded_domain_str .. "|" .. domain
 end
 
 local function check_excluded_domain(domain)
@@ -145,20 +202,6 @@ local function check_excluded_domain(domain)
 		end
 	end
 	return false
-end
-
-local cache_text = ""
-local nodes_address_md5 = luci.sys.exec("echo -n $(uci show passwall | grep '\\.address') | md5sum")
-local new_rules = luci.sys.exec("echo -n $(find /usr/share/passwall/rules -type f | xargs md5sum)")
-local new_text = TMP_DNSMASQ_PATH .. DNSMASQ_CONF_FILE .. DEFAULT_DNS .. LOCAL_DNS .. TUN_DNS .. REMOTE_FAKEDNS .. USE_DEFAULT_DNS .. CHINADNS_DNS .. USE_DIRECT_LIST .. USE_PROXY_LIST .. USE_BLOCK_LIST .. USE_GFW_LIST .. CHN_LIST .. DEFAULT_PROXY_MODE .. NO_PROXY_IPV6 .. nodes_address_md5 .. new_rules
-if fs.access(CACHE_TEXT_FILE) then
-	for line in io.lines(CACHE_TEXT_FILE) do
-		cache_text = line
-	end
-end
-
-if cache_text ~= new_text then
-	api.remove(CACHE_DNS_PATH .. "*")
 end
 
 local dnsmasq_default_dns
@@ -184,13 +227,10 @@ end
 local setflag_4 = "4#inet#passwall#"
 local setflag_6 = "6#inet#passwall#"
 
-if not fs.access(CACHE_DNS_PATH) then
-	fs.mkdir("/tmp/dnsmasq.d")
-	fs.mkdir(CACHE_DNS_PATH)
-
+do
 	--屏蔽列表
 	if USE_BLOCK_LIST == "1" then
-		for line in io.lines("/usr/share/passwall/rules/block_host") do
+		for _, line in ipairs(read_lines("/usr/share/passwall/rules/block_host")) do
 			if line ~= "" and not line:find("#") then
 				set_domain_address(line, "")
 			end
@@ -228,7 +268,7 @@ if not fs.access(CACHE_DNS_PATH) then
 			end
 			if fwd_dns then
 				--始终用国内DNS解析直连（白名单）列表
-				for line in io.lines("/usr/share/passwall/rules/direct_host") do
+				for _, line in ipairs(read_lines("/usr/share/passwall/rules/direct_host")) do
 					if line ~= "" and not line:find("#") then
 						add_excluded_domain(line)
 						set_domain_dns(line, fwd_dns)
@@ -249,7 +289,7 @@ if not fs.access(CACHE_DNS_PATH) then
 			end
 			if fwd_dns then
 				--始终使用远程DNS解析代理（黑名单）列表
-				for line in io.lines("/usr/share/passwall/rules/proxy_host") do
+				for _, line in ipairs(read_lines("/usr/share/passwall/rules/proxy_host")) do
 					if line ~= "" and not line:find("#") then
 						add_excluded_domain(line)
 						local ipset_flag = setflag_4 .. "passwall_blacklist," .. setflag_6 .. "passwall_blacklist6"
@@ -284,9 +324,9 @@ if not fs.access(CACHE_DNS_PATH) then
 				if REMOTE_FAKEDNS == "1" then
 					ipset_flag = nil
 				end
-				local gfwlist_str = sys.exec('cat /usr/share/passwall/rules/gfwlist | grep -v -E "^#" | grep -v -E "' .. excluded_domain_str .. '"')
-				for line in string.gmatch(gfwlist_str, "[^\r\n]+") do
-					if line ~= "" then
+				for _, line in ipairs(read_lines("/usr/share/passwall/rules/gfwlist")) do
+					line = line:gsub("\r$", "")
+					if line ~= "" and not line:find("^#") and not check_excluded_domain(line) then
 						if NO_PROXY_IPV6 == "1" then
 							set_domain_address(line, "::")
 						end
@@ -369,64 +409,56 @@ if not fs.access(CACHE_DNS_PATH) then
 			address = "::"
 		}
 	end
+end
 
-	if list1 and next(list1) then
-		local address_out = io.open(CACHE_DNS_PATH .. "/000-address.conf", "a")
-		local server_out = io.open(CACHE_DNS_PATH .. "/001-server.conf", "a")
-		local ipset_out = io.open(CACHE_DNS_PATH .. "/ipset.conf", "a")
-		local set_name = "nftset"
-		for key, value in pairs(list1) do
-			if value.address then
-				local domain = "." .. key
-				if key == "#" then
-					domain = key
-				end
-				address_out:write(string.format("address=/%s/%s\n", domain, value.address))
-			end
-			if value.dns and #value.dns > 0 then
-				for i, dns in ipairs(value.dns) do
-					server_out:write(string.format("server=/.%s/%s\n", key, dns))
-				end
-			end
-			if value.ipsets and #value.ipsets > 0 then
-				local ipsets_str = ""
-				for i, ipset in ipairs(value.ipsets) do
-					ipsets_str = ipsets_str .. ipset .. ","
-				end
-				ipsets_str = ipsets_str:sub(1, #ipsets_str - 1)
-				ipset_out:write(string.format("%s=/.%s/%s\n", set_name, key, ipsets_str))
-			end
+local addresses = {}
+local servers = {}
+local ipsets = {}
+local domains = {}
+for domain in pairs(list1) do
+	domains[#domains + 1] = domain
+end
+table.sort(domains)
+
+local set_name = "nftset"
+for _, key in ipairs(domains) do
+	local value = list1[key]
+	if value.address then
+		local domain = "." .. key
+		if key == "#" then
+			domain = key
 		end
-		address_out:close()
-		server_out:close()
-		ipset_out:close()
+		addresses[#addresses + 1] = string.format("address=/%s/%s\n", domain, value.address)
 	end
-
-	local f_out = io.open(CACHE_TEXT_FILE, "a")
-	f_out:write(new_text)
-	f_out:close()
-end
-
-if api.is_install("procd\\-ujail") then
-	fs.copyr(CACHE_DNS_PATH, TMP_DNSMASQ_PATH)
-else
-	api.remove(TMP_DNSMASQ_PATH)
-	fs.symlink(CACHE_DNS_PATH, TMP_DNSMASQ_PATH)
-end
-
-if DNSMASQ_CONF_FILE ~= "nil" then
-	local conf_out = io.open(DNSMASQ_CONF_FILE, "a")
-	conf_out:write(string.format("conf-dir=%s\n", TMP_DNSMASQ_PATH))
-	if dnsmasq_default_dns then
-		for s in string.gmatch(dnsmasq_default_dns, '[^' .. "," .. ']+') do
-			conf_out:write(string.format("server=%s\n", s))
+	if value.dns and #value.dns > 0 then
+		for _, dns in ipairs(value.dns) do
+			servers[#servers + 1] = string.format("server=/.%s/%s\n", key, dns)
 		end
-		conf_out:write("all-servers\n")
-		conf_out:write("no-poll\n")
-		conf_out:write("no-resolv\n")
-		conf_out:close()
-		log(string.format("  - 默认：%s", dnsmasq_default_dns))
+	end
+	if value.ipsets and #value.ipsets > 0 then
+		local ipsets_str = table.concat(value.ipsets, ",")
+		ipsets[#ipsets + 1] = string.format("%s=/.%s/%s\n", set_name, key, ipsets_str)
 	end
 end
+
+write_file(output_path("000-address.conf"), table.concat(addresses))
+write_file(output_path("001-server.conf"), table.concat(servers))
+write_file(output_path("ipset.conf"), table.concat(ipsets))
+
+if not DNSMASQ_CONF_FILE or DNSMASQ_CONF_FILE == "" or DNSMASQ_CONF_FILE == "nil" then
+	error("missing -DNSMASQ_CONF_FILE", 0)
+end
+
+local conf = { string.format("conf-dir=%s\n", TMP_DNSMASQ_PATH) }
+if dnsmasq_default_dns then
+	for s in string.gmatch(dnsmasq_default_dns, '[^' .. "," .. ']+') do
+		conf[#conf + 1] = string.format("server=%s\n", s)
+	end
+	conf[#conf + 1] = "all-servers\n"
+	conf[#conf + 1] = "no-poll\n"
+	conf[#conf + 1] = "no-resolv\n"
+	log(string.format("  - 默认：%s", dnsmasq_default_dns))
+end
+write_file(DNSMASQ_CONF_FILE, table.concat(conf))
 
 log("  - PassWall必须依赖于Dnsmasq，如果你自行配置了错误的DNS流程，将会导致域名(直连/代理域名)分流失效！！！")

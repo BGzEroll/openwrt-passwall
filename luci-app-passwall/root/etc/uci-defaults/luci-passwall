@@ -43,6 +43,22 @@ uci -q delete 'passwall.@global_rules[0].chnlist_update'
 uci -q delete 'passwall.@global_rules[0].chnlist_url'
 uci -q delete 'passwall.@global_other[0].auto_detection_time'
 rm -f /usr/share/passwall/rules/chnlist
+# One-time conversion keeps existing proxy endpoints while removing old types.
+if [ "$(uci -q get 'passwall.@global[0].dns_mode')" = dns2socks ]; then
+	uci set 'passwall.@global[0].dns_mode=xray'
+fi
+if [ "$(uci -q get 'passwall.@global[0].direct_dns_mode')" = dot ]; then
+	uci set 'passwall.@global[0].direct_dns_mode=tcp'
+fi
+uci -q delete 'passwall.@global[0].direct_dns_dot'
+uci -q delete 'passwall.@global[0].socks_server'
+for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p'); do
+	if [ "$(uci -q get "passwall.$node.type")" = Socks ]; then
+		uci set "passwall.$node.type=Xray"
+		uci set "passwall.$node.protocol=socks"
+		uci set "passwall.$node.transport=tcp"
+	fi
+done
 uci commit passwall
 
 chmod +x /usr/share/passwall/*.sh

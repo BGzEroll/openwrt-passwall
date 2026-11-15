@@ -93,17 +93,10 @@ function clear_log()
 end
 
 function index_status()
-	local e = {}
-	e.dns_mode_status = luci.sys.call("netstat -apn | grep ':15353 ' >/dev/null") == 0
-	e["tcp_node_status"] = luci.sys.call("/bin/busybox top -bn1 | grep -v 'grep' | grep '/tmp/etc/passwall/bin/' | grep 'default' | grep 'TCP' >/dev/null") == 0
-
-	if (uci:get(appname, "@global[0]", "udp_node") or "nil") == "tcp" then
-		e["udp_node_status"] = e["tcp_node_status"]
-	else
-		e["udp_node_status"] = luci.sys.call("/bin/busybox top -bn1 | grep -v 'grep' | grep '/tmp/etc/passwall/bin/' | grep 'default' | grep 'UDP' >/dev/null") == 0
-	end
-	luci.http.prepare_content("application/json")
-	luci.http.write_json(e)
+	local output = luci.sys.exec("lua /usr/share/passwall/process.lua status")
+	local data = api.jsonc.parse(output) or {service_status = "degraded", service_detail = "无法读取运行状态"}
+	http.prepare_content("application/json")
+	http.write_json(data)
 end
 
 function ping_node()

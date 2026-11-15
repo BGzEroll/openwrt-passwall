@@ -15,10 +15,11 @@
 ## 个人裁剪范围
 
 - 节点仅通过表单手动新增、编辑；不提供订阅、分享链接、二维码或自动延迟检测，保留手动测速。
-- 守护进程随 Passwall 强制启动，不提供关闭选项。
+- 核心及 DNS 辅助进程统一交给 procd 守护，不提供关闭守护的选项；PBR 下继续运行核心和默认 1070 SOCKS，供规则下载使用。
 - 不提供组件更新或自定义程序路径；核心使用 `/usr/bin/` 下的标准程序，Xray 资源目录固定为 `/usr/share/v2ray/`。
 - 不支持 GeoIP/GeoSite 数据或表达式；规则更新仅处理 GFW 域名表及中国 IPv4/IPv6 文本列表，支持手动更新和每日/每周 cron，不提供循环更新进程。
 - 规则列表分别显示中国 IPv4 和 IPv6 内容；不使用中国域名表，ChinaDNS-NG 按中国 IP 地址表判断解析结果。
+- 不提供 dns2socks 和 DoT；保留 UDP、TCP 及核心提供的 DoH。独立 Socks 节点类型已移除，SOCKS 上游使用 Xray 或 sing-box 的 SOCKS 协议。
 
 ## 专用架构约束
 
@@ -718,13 +719,15 @@ Proxy
 
 规则列表保存时调用 `/etc/init.d/passwall reload rules`。该命令以 nftables 全表事务热重载规则，DNS 配置有变化时按需生效，不重启代理核心。
 
-- `start` / `stop` / `restart` 管理完整服务，重复启动不会重复创建进程。
+- `start` / `stop` / `restart` 管理完整服务，重复启动不会重复创建进程；核心变更先在临时目录校验，校验失败保留正在运行的服务。
 - `reload rules` 用于规则列表热更新；`reload network` 用于网络事件；不带参数的 `reload` 在核心配置变化时重启服务，否则热更新。
 - 每次有效热更新都重新生成并事务替换整张 `inet passwall` 表，DNS 学习地址和 flowtable 随之重新积累。
 - hotplug 固定关注个人网络中的 `wan`、`wan6`、`lan`、`localproxy`；重复通知读取当前状态后跳过，停止服务后不会被通知重新启动。
 - 下载规则先在独立临时目录校验，再交给统一锁内发布和应用；失败保留旧规则。
 
-运行状态、实际监听端口及最近成功生成的规则保存在 `/var/run/passwall/`，服务操作统一使用 `/var/lock/passwall.lock`。
+延迟启动可由启停操作取消；停止流程会完成其余清理后汇总错误。DNS 辅助脚本直接生成普通配置文件，由外层统一校验、比较、发布及回滚。
+
+运行状态、procd 实例定义、实际监听端口及最近成功生成的规则保存在 `/var/run/passwall/`，服务操作统一使用 `/var/lock/passwall.lock`。
 
 PBR 模式主要改变的是：
 
