@@ -43,12 +43,10 @@ config global_singbox
 	option sniff_override_destination '0'
 
 config global_other
-	option auto_detection_time '0'
 	option show_node_info '0'
 
 config global_rules
 	option auto_update '1'
-	option chnlist_update '0'
 	option chnroute_update '1'
 	option chnroute6_update '1'
 	option gfwlist_update '0'
@@ -59,5 +57,3 @@ config global_rules
 	list chnroute_url 'https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt'
 	list chnroute6_url 'https://ispip.clang.cn/all_cn_ipv6.txt'
 	list chnroute6_url 'https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt'
-	list chnlist_url 'https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/accelerated-domains.china.conf'
-	list chnlist_url 'https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/apple.china.conf'

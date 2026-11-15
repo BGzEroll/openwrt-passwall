@@ -25,7 +25,7 @@ PKG_CONFIG_DEPENDS:= \
 
 LUCI_TITLE:=LuCI support for PassWall
 LUCI_PKGARCH:=all
-LUCI_DEPENDS:=+coreutils +coreutils-base64 +coreutils-nohup +curl \
+LUCI_DEPENDS:=+coreutils +curl \
 	+chinadns-ng +dns2socks +dns2tcp +dnsmasq-full +ip-full \
 	+libuci-lua +lua +luci-compat +luci-lib-jsonc \
 	+resolveip +tcping +ipt2socks +nftables \
@@ -114,7 +114,6 @@ define Package/$(PKG_NAME)/conffiles
 /usr/share/passwall/rules/lanlist_ipv4
 /usr/share/passwall/rules/lanlist_ipv6
 /usr/share/passwall/rules/domains_excluded
-/www/luci-static/resources/qrcode.min.js
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk

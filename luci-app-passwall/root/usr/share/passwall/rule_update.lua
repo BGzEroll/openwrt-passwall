@@ -19,7 +19,6 @@ local update_failed = false
 local gfwlist_update = 0
 local chnroute_update = 0
 local chnroute6_update = 0
-local chnlist_update = 0
 
 -- match comments/title/whitelist/ip address/excluded_domain
 local comment_pattern = "^[#!\\[@]+"
@@ -30,7 +29,6 @@ local excluded_domain = {"apple.com","sina.cn","sina.com.cn","baidu.com","byr.cn
 local gfwlist_url = ucic:get(name, "@global_rules[0]", "gfwlist_url") or {"https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt"}
 local chnroute_url = ucic:get(name, "@global_rules[0]", "chnroute_url") or {"https://ispip.clang.cn/all_cn.txt"}
 local chnroute6_url =  ucic:get(name, "@global_rules[0]", "chnroute6_url") or {"https://ispip.clang.cn/all_cn_ipv6.txt"}
-local chnlist_url = ucic:get(name, "@global_rules[0]", "chnlist_url") or {"https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/accelerated-domains.china.conf","https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/apple.china.conf","https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/google.china.conf"}
 if arg3 == "cron" then
 	arg2 = nil
 end
@@ -242,10 +240,6 @@ local function fetch_chnroute6()
 	return fetch_rule("chnroute6", "ip6", chnroute6_url, false)
 end
 
-local function fetch_chnlist()
-	return fetch_rule("chnlist", "domain", chnlist_url, false)
-end
-
 local function run_task(label, callback)
 	local ok, result = xpcall(callback, function(e)
 		return tostring(e) .. "\n" .. debug.traceback()
@@ -289,18 +283,14 @@ if arg2 then
 		if w == "chnroute6" then
 			chnroute6_update = 1
 		end
-		if w == "chnlist" then
-			chnlist_update = 1
-		end
 	end)
 else
 	gfwlist_update = ucic:get_first(name, 'global_rules', "gfwlist_update", 0)
 	chnroute_update = ucic:get_first(name, 'global_rules', "chnroute_update", 1)
 	chnroute6_update = ucic:get_first(name, 'global_rules', "chnroute6_update", 1)
-	chnlist_update = ucic:get_first(name, 'global_rules', "chnlist_update", 0)
 end
 
-if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 and (tonumber(chnlist_update) or 0) == 0 then
+if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 then
 	os.exit(0)
 end
 
@@ -329,15 +319,11 @@ if task_tmp_dir and rule_publish_dir then
 	if tonumber(chnroute6_update) == 1 then
 		run_task("chnroute6", fetch_chnroute6)
 	end
-	if tonumber(chnlist_update) == 1 then
-		run_task("chnlist", fetch_chnlist)
-	end
 end
 
 ucic:set(name, ucic:get_first(name, 'global_rules'), "gfwlist_update", gfwlist_update)
 ucic:set(name, ucic:get_first(name, 'global_rules'), "chnroute_update", chnroute_update)
 ucic:set(name, ucic:get_first(name, 'global_rules'), "chnroute6_update", chnroute6_update)
-ucic:set(name, ucic:get_first(name, 'global_rules'), "chnlist_update", chnlist_update)
 ucic:save(name)
 luci.sys.call("uci commit " .. name)
 

@@ -224,16 +224,6 @@ function is_ipv6(val)
 	return false
 end
 
-function is_ipv6addrport(val)
-	if is_ipv6(val) then
-		local address, port = val:match('%[(.*)%]:([^:]+)$')
-		if port then
-			return datatypes.port(port)
-		end
-	end
-	return false
-end
-
 function get_ipv6_only(val)
 	local result = ""
 	if is_ipv6(val) then
@@ -398,11 +388,6 @@ function get_app_version(app_name)
 	return get_bin_version_cache(app.path, app.cmd_version)
 end
 
-function _unpack(t, i)
-	i = i or 1
-	if t[i] ~= nil then return t[i], _unpack(t, i + 1) end
-end
-
 function table_join(t, s)
 	if not s then
 		s = " "
@@ -438,44 +423,6 @@ function compare_versions(ver1, comp, ver2)
 	end
 
 	return not (comp == "<" or comp == ">")
-end
-
-function parseURL(url)
-	if not url or url == "" then
-		return nil
-	end
-	local pattern = "^(%w+)://"
-	local protocol = url:match(pattern)
-
-	if not protocol then
-		--error("Invalid URL: " .. url)
-		return nil
-	end
-
-	local auth_host_port = url:sub(#protocol + 4)
-	local auth_pattern = "^([^@]+)@"
-	local auth = auth_host_port:match(auth_pattern)
-	local username, password
-
-	if auth then
-		username, password = auth:match("^([^:]+):([^:]+)$")
-		auth_host_port = auth_host_port:sub(#auth + 2)
-	end
-
-	local host, port = auth_host_port:match("^([^:]+):(%d+)$")
-
-	if not host or not port then
-		--error("Invalid URL: " .. url)
-		return nil
-	end
-
-	return {
-		protocol = protocol,
-		username = username,
-		password = password,
-		host = host,
-		port = tonumber(port)
-	}
 end
 
 function luci_types(id, m, s, type_name, option_prefix)

@@ -29,12 +29,6 @@ o = s:option(DynamicList, "chnroute6_url", translate("China IPv6s(chnroute6) Upd
 o:value("https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt", translate("gaoyifan/china-operator-ip/china6"))
 o:value("https://ispip.clang.cn/all_cn_ipv6.txt", translate("Clang.CN.IPv6"))
 
-----chnlist URL
-o = s:option(DynamicList, "chnlist_url", translate("China List(Chnlist) Update URL"))
-o:value("https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/accelerated-domains.china.conf", translate("felixonmars/domains.china"))
-o:value("https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/apple.china.conf", translate("felixonmars/apple.china"))
-o:value("https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/google.china.conf", translate("felixonmars/google.china"))
-
 s:append(Template(appname .. "/rule/rule_version"))
 
 ---- Auto Update

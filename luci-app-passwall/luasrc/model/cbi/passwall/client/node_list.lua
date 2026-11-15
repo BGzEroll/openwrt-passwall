@@ -8,19 +8,11 @@ m = Map(appname)
 s = m:section(TypedSection, "global_other")
 s.anonymous = true
 
-o = s:option(ListValue, "auto_detection_time", translate("Automatic detection delay"))
-o:value("0", translate("Close"))
-o:value("icmp", "Ping")
-o:value("tcping", "TCP Ping")
-o.default = "0"
-
 o = s:option(Flag, "show_node_info", translate("Show server address and port"))
 o.default = "0"
 
--- [[ Add the node via the link ]]--
-s:append(Template(appname .. "/node_list/link_add_node"))
+s:append(Template(appname .. "/node_list/nodes_actions"))
 
-local auto_detection_time = m:get("@global_other[0]", "auto_detection_time") or "0"
 local show_node_info = m:get("@global_other[0]", "show_node_info") or "0"
 
 -- [[ Node List ]]--
@@ -111,13 +103,7 @@ o = s:option(DummyValue, "ping", "Ping")
 o.width = "8%"
 o.rawhtml = true
 o.cfgvalue = function(t, n)
-	local result = "---"
-	if auto_detection_time ~= "icmp" then
-		result = string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:ping_node(\'%s\', this, \'icmp\')">%s</a></span>', n, translate("Test"))
-	else
-		result = string.format('<span class="ping_value" cbiid="%s">---</span>', n)
-	end
-	return result
+	return string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:ping_node(\'%s\', this, \'icmp\')">%s</a></span>', n, translate("Test"))
 end
 
 ---- TCP Ping
@@ -125,13 +111,7 @@ o = s:option(DummyValue, "tcping", "TCPing")
 o.width = "8%"
 o.rawhtml = true
 o.cfgvalue = function(t, n)
-	local result = "---"
-	if auto_detection_time ~= "tcping" then
-		result = string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:ping_node(\'%s\', this, \'tcping\')">%s</a></span>', n, translate("Test"))
-	else
-		result = string.format('<span class="tcping_value" cbiid="%s">---</span>', n)
-	end
-	return result
+	return string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:ping_node(\'%s\', this, \'tcping\')">%s</a></span>', n, translate("Test"))
 end
 
 o = s:option(DummyValue, "_url_test", translate("URL Test"))

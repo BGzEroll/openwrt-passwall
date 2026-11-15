@@ -5,7 +5,6 @@ local datatypes = api.datatypes
 local has_singbox = api.finded_com("singbox")
 local has_xray = api.finded_com("xray")
 local has_gfwlist = api.fs.access("/usr/share/passwall/rules/gfwlist")
-local has_chnlist = api.fs.access("/usr/share/passwall/rules/chnlist")
 local has_chnroute = api.fs.access("/usr/share/passwall/rules/chnroute")
 
 m = Map(appname)
@@ -487,7 +486,7 @@ if has_gfwlist then
 	o.default = "0"
 end
 
-if has_chnlist or has_chnroute then
+if has_chnroute then
 	o = s:taboption("Proxy", ListValue, "chn_list", translate("China List"))
 	o:value("0", translate("Close(Not use)"))
 	o:value("direct", translate("Direct Connection"))

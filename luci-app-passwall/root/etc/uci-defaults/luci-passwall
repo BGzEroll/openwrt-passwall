@@ -39,6 +39,10 @@ for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p
 	uci -q delete "passwall.$node.add_mode"
 	uci -q delete "passwall.$node.add_from"
 done
+uci -q delete 'passwall.@global_rules[0].chnlist_update'
+uci -q delete 'passwall.@global_rules[0].chnlist_url'
+uci -q delete 'passwall.@global_other[0].auto_detection_time'
+rm -f /usr/share/passwall/rules/chnlist
 uci commit passwall
 
 chmod +x /usr/share/passwall/*.sh

@@ -4,7 +4,6 @@ local api = require "luci.passwall.api"
 local gfwlist_update = api.uci_get_type("global_rules", "gfwlist_update", "0") == "1" and "checked='checked'" or ""
 local chnroute_update = api.uci_get_type("global_rules", "chnroute_update", "1") == "1" and "checked='checked'" or ""
 local chnroute6_update = api.uci_get_type("global_rules", "chnroute6_update", "1") == "1" and "checked='checked'" or ""
-local chnlist_update = api.uci_get_type("global_rules", "chnlist_update", "0") == "1" and "checked='checked'" or ""
 -%>
 
 <script type="text/javascript">
@@ -55,10 +54,6 @@ local chnlist_update = api.uci_get_type("global_rules", "chnlist_update", "0") =
 			<label>
 				<input class="cbi-input-checkbox" type="checkbox" name="chnroute6" value="1" <%=chnroute6_update%> />
 				chnroute6
-			</label>
-			<label>
-				<input class="cbi-input-checkbox" type="checkbox" name="chnlist" value="1" <%=chnlist_update%> />
-				chnlist
 			</label>
 			<input class="btn cbi-button cbi-button-apply" type="button" id="update_rules_btn" onclick="update_rules(this)" value="<%:Manually update%>" />
 		</div>

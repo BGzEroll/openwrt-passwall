@@ -32,7 +32,6 @@ function index()
 	entry({"admin", "services", appname, "acl_config"}, cbi(appname .. "/client/acl_config")).leaf = true
 	entry({"admin", "services", appname, "log"}, form(appname .. "/client/log"), _("Watch Logs"), 999).leaf = true
 	--[[ API ]]
-	entry({"admin", "services", appname, "link_add_node"}, call("link_add_node")).leaf = true
 	entry({"admin", "services", appname, "get_now_use_node"}, call("get_now_use_node")).leaf = true
 	entry({"admin", "services", appname, "get_redir_log"}, call("get_redir_log")).leaf = true
 	entry({"admin", "services", appname, "get_log"}, call("get_log")).leaf = true
@@ -51,23 +50,6 @@ end
 local function http_write_json(content)
 	http.prepare_content("application/json")
 	http.write_json(content or {code = 1})
-end
-
-function link_add_node()
-	local link = http.formvalue("link")
-	if not link or link == "" then
-		http.status(400, "No node links supplied")
-		return
-	end
-	local path = util.trim(luci.sys.exec("mktemp /tmp/passwall-import.XXXXXX"))
-	if path == "" or not nixio.fs.writefile(path, link) then
-		if path ~= "" then nixio.fs.remove(path) end
-		http.status(500, "Cannot stage node links")
-		return
-	end
-	local status = luci.sys.call("lua /usr/share/passwall/import.lua " .. util.shellquote(path))
-	nixio.fs.remove(path)
-	if status ~= 0 then http.status(400, "Node import failed") end
 end
 
 function get_now_use_node()
@@ -218,7 +200,7 @@ function delete_select_nodes()
 end
 
 function update_rules()
-	local allowed = {gfwlist = true, chnroute = true, chnroute6 = true, chnlist = true}
+	local allowed = {gfwlist = true, chnroute = true, chnroute6 = true}
 	local selected = {}
 	for name in (http.formvalue("update") or ""):gmatch("[^,]+") do
 		if not allowed[name] then

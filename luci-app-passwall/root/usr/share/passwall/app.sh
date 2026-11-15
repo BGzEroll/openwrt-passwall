@@ -452,7 +452,7 @@ run_dns2socks() {
 }
 
 run_chinadns_ng() {
-	local _flag _listen_port _dns_local _dns_trust _no_ipv6_trust _use_direct_list _use_proxy_list _gfwlist _chnlist _default_mode _default_tag
+	local _flag _listen_port _dns_local _dns_trust _no_ipv6_trust _use_direct_list _use_proxy_list _gfwlist _chnroute _default_mode _default_tag
 	eval_set_val $@
 
 	local _CONF_FILE=$TMP_ACL_PATH/$_flag/chinadns_ng.conf
@@ -464,6 +464,8 @@ run_chinadns_ng() {
 		bind-port ${_listen_port}
 		china-dns ${_dns_local}
 		trust-dns ${_dns_trust}
+		ipset-name4 inet@passwall@passwall_chnroute
+		ipset-name6 inet@passwall@passwall_chnroute6
 	EOF
 
 	# This function may be called multiple times, so add a condition here to avoid repeated execution.
@@ -515,38 +517,12 @@ run_chinadns_ng() {
 		[ "${_no_ipv6_trust}" = "1" ] && echo "no-ipv6 tag:gfw" >> ${_CONF_FILE}
 	}
 
-	[ "${_chnlist}" != "0" ] && [ -s "${RULES_PATH}/chnlist" ] && {
-		local chnroute4_set="inet@passwall@passwall_chnroute"
-		local chnroute6_set="inet@passwall@passwall_chnroute6"
-
-		[ "${_chnlist}" = "direct" ] && {
-			cat <<-EOF >> ${_CONF_FILE}
-				chnlist-file ${RULES_PATH}/chnlist
-				ipset-name4 ${chnroute4_set}
-				ipset-name6 ${chnroute6_set}
-				add-tagchn-ip
-				chnlist-first
-			EOF
-		}
-
-		#回中国模式
-		[ "${_chnlist}" = "proxy" ] && {
-			cat <<-EOF >> ${_CONF_FILE}
-				group chn_proxy
-				group-dnl ${RULES_PATH}/chnlist
-				group-upstream ${_dns_trust}
-				group-ipset ${chnroute4_set},${chnroute6_set}
-			EOF
-			[ "${_no_ipv6_trust}" = "1" ] && echo "no-ipv6 tag:chn_proxy" >> ${_CONF_FILE}
-		}
-	}
-
 	#只使用gfwlist模式，GFW列表以外的域名及默认使用本地DNS
-	[ "${_gfwlist}" = "1" ] && [ "${_chnlist}" = "0" ] && _default_tag="chn"
+	[ "${_gfwlist}" = "1" ] && [ "${_chnroute}" = "0" ] && _default_tag="chn"
 	#回中国模式，中国列表以外的域名及默认使用本地DNS
-	[ "${_chnlist}" = "proxy" ] && _default_tag="chn"
+	[ "${_chnroute}" = "proxy" ] && _default_tag="chn"
 	#全局模式，默认使用远程DNS
-	[ "${_default_mode}" = "proxy" ] && [ "${_chnlist}" = "0" ] && [ "${_gfwlist}" = "0" ] && {
+	[ "${_default_mode}" = "proxy" ] && [ "${_chnroute}" = "0" ] && [ "${_gfwlist}" = "0" ] && {
 		_default_tag="gfw"
 		[ "${_no_ipv6_trust}" = "1" ] && echo "no-ipv6" >> ${_CONF_FILE}
 	}
@@ -1261,7 +1237,7 @@ start_dns() {
 			_use_direct_list=${USE_DIRECT_LIST} \
 			_use_proxy_list=${USE_PROXY_LIST} \
 			_gfwlist=${USE_GFW_LIST} \
-			_chnlist=${CHN_LIST} \
+			_chnroute=${CHN_LIST} \
 			_default_mode=${TCP_PROXY_MODE} \
 			_default_tag=$(config_t_get global chinadns_ng_default_tag smart)
 
@@ -1580,7 +1556,7 @@ app_update_rules() {
 	local source="$1" backup name count=0 failed=0
 	[ -d "$source" ] || return 1
 	backup=$(mktemp -d "$RULES_PATH/.update.XXXXXX") || return 1
-	for name in gfwlist chnroute chnroute6 chnlist; do
+	for name in gfwlist chnroute chnroute6; do
 		[ -f "$source/$name" ] || continue
 		[ -s "$source/$name" ] || { rm -rf "$backup"; return 1; }
 		cp "$source/$name" "$backup/$name.new" || { rm -rf "$backup"; return 1; }
@@ -1588,11 +1564,11 @@ app_update_rules() {
 		count=$((count + 1))
 	done
 	[ "$count" -gt 0 ] || { rm -rf "$backup"; return 1; }
-	for name in gfwlist chnroute chnroute6 chnlist; do
+	for name in gfwlist chnroute chnroute6; do
 		[ ! -f "$backup/$name.new" ] || mv "$backup/$name.new" "$RULES_PATH/$name" || { failed=1; break; }
 	done
 	if [ "$failed" = 1 ] || ! app_reload rules; then
-		for name in gfwlist chnroute chnroute6 chnlist; do
+		for name in gfwlist chnroute chnroute6; do
 			[ -f "$source/$name" ] || continue
 			if [ -f "$backup/$name.old" ]; then
 				mv "$backup/$name.old" "$RULES_PATH/$name"

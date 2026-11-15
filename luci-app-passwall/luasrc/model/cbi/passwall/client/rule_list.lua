@@ -5,7 +5,6 @@ local sys = api.sys
 local datatypes = api.datatypes
 local path = string.format("/usr/share/%s/rules/", appname)
 local gfwlist_path = "/usr/share/passwall/rules/gfwlist"
-local chnlist_path = "/usr/share/passwall/rules/chnlist"
 local chnroute_path = "/usr/share/passwall/rules/chnroute"
 local chnroute6_path = "/usr/share/passwall/rules/chnroute6"
 
@@ -280,17 +279,6 @@ if api.fs.access(gfwlist_path) then
 	o.wrap = "off"
 	o.cfgvalue = function(self, section)
 		return fs.readfile(gfwlist_path) or ""
-	end
-end
-
-if api.fs.access(chnlist_path) then
-	s:tab("chn_list", translate("China List") .. "(" .. translate("Domain") .. ")")
-	o = s:taboption("chn_list", TextValue, "chn_list", "")
-	o.readonly = true
-	o.rows = 45
-	o.wrap = "off"
-	o.cfgvalue = function(self, section)
-		return fs.readfile(chnlist_path) or ""
 	end
 end
 
