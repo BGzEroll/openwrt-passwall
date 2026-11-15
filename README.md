@@ -1,862 +1,108 @@
 # openwrt-passwall
 
-基于 OpenWrt Passwall 的个人定制版本。
+面向个人固定网络环境的 Passwall 裁剪版本。主路由负责 DNS、设备策略、目标分流和策略路由，外置透明代理网关负责处理代理流量。
 
-本 Fork 面向个人固定使用的 `BGzEroll/immortalwrt` `openwrt-23.05`，基线为 fw4、nftables `1.0.8` 和启用 nftset 的 dnsmasq `2.90`。透明代理只支持 TCP/UDP TPROXY，并支持两种 Proxy Action：
+固定使用 `BGzEroll/immortalwrt` 的 `openwrt-23.05` 分支，基线为 fw4、nftables `1.0.8`、支持 nftset 的 dnsmasq `2.90` 和 Xray `1.8.23`。功能及默认行为围绕自用需求维护。
 
-> **PBR 关闭时交给 OpenWrt 本机代理核心；PBR 开启时通过 Policy Routing 转发至独立透明代理机。**
+## 当前部署
 
-无论 Proxy Action 选用哪条路径，VLAN、路由、防火墙、DNS、ACL、分流规则、nftables 和 Policy Routing 都由 OpenWrt 统一管理。PBR 开启时，mihomo、sing-box、Xray 等实际代理核心可以运行在独立 Linux / VM / LXC / 物理机上。
+以下是当前主路由的部署值，不是初始化脚本写死的默认配置。新安装默认停用，已有配置和节点会保留。
 
-可以简单理解为：
-
-> **Passwall 负责 WHO / WHICH PORTS / WHERE；Proxy Action 只负责把 PROXY 流量送到本机 TPROXY 或外置代理机。**
-
-## 个人裁剪范围
-
-- 本机代理核心固定为 Xray，保留其 SOCKS、HTTP、VMess、VLESS、Shadowsocks、Trojan、WireGuard 及分流、均衡、接口出口功能；不包含其他独立核心、跨核心中继或核心选择菜单。
-- 节点仅通过表单手动新增、编辑；不提供订阅、分享链接、二维码或自动延迟检测，保留手动测速。
-- 核心及 DNS 辅助进程统一交给 procd 守护，不提供关闭守护的选项；PBR 下继续运行核心和默认 1070 SOCKS，供规则下载使用。
-- 不提供组件更新或自定义程序路径；核心使用 `/usr/bin/` 下的标准程序，以 Xray `1.8.23` 为基线，资源目录固定为 `/usr/share/v2ray/`。
-- 不支持 GeoIP/GeoSite 数据或表达式；规则更新仅处理 GFW 域名表及中国 IPv4/IPv6 文本列表，支持手动更新和每日/每周 cron，不提供循环更新进程。
-- 规则列表分别显示中国 IPv4 和 IPv6 内容；不使用中国域名表，ChinaDNS-NG 按中国 IP 地址表判断解析结果。
-- 不提供 dns2socks 和 DoT；保留 UDP、TCP 及核心提供的 DoH。独立 Socks 节点类型已移除，SOCKS 上游使用 Xray 的 SOCKS 协议。
-- DNS 正常查询和处理 IPv4/IPv6，不提供代理域名 IPv6 过滤开关。
-
-## 页面与运行日志
-
-页面沿用原生 Lua CBI，入口为基础设置、节点、设备策略、规则、高级设置和日志。规则编辑、更新计划及核心分流排序使用同一规则页；大列表在打开对应标签时加载。手动和定时更新共用勾选列表，立即更新会保存当前勾选；二者共用独立任务锁，页面显示下载、应用和完成状态。下载不占用服务生命周期锁。
-
-节点操作由 CBI 表格直接生成，备注和地址按文本显示；地址与端口始终在节点名称下方另起一行。日志页集中管理核心日志开关、等级和详细运行日志，并可切换查看运行、TCP 和 UDP 核心日志。运行日志默认记录操作结果及错误，支持暂停刷新和清空；阅读旧日志时保留滚动位置。核心配置校验失败会在日志中记录具体原因。运行状态显示 TCP、UDP、DNS 三张图标卡片。
-
-核心配置签名只追踪实际引用的前置代理、分流、均衡及链式节点，忽略节点备注、分组和未引用节点。每次操作固定一份 UCI 配置，由原生配置回调读取；成功应用后保存为生效配置。运行状态、网络变化和规则热更新使用生效配置，配置校验失败会保留原服务及错误原因。DNS 与 DoH 共用 IPv4/IPv6 地址解析，带端口的 IPv6 使用 `[地址]:端口` 或 `地址#端口`。域名统一小写及末尾点格式，排除规则按完整域名或子域名边界匹配。
-
-删除节点前检查分流、均衡、前置代理及链式节点引用；存在保留节点引用时拒绝删除并列出来源。批量删除允许所选节点之间相互引用，删除当前节点时将对应全局选择置为“不使用”。安装初始化只补缺失配置和必要系统集成，不迁移历史功能或覆盖已有节点。开机时 PBR 按地址族等待接口地址就绪，期间保留不可达保护，网络事件随后补齐路由。启动延迟为 0 的实机重启已验证。正常探测和重载不向系统日志输出提示，失败原因记录在 Passwall 日志。
-
-## 专用架构约束
-
-- 客户端透明代理仅使用 nftables，不再提供 iptables 后端选择。
-- TCP 不再支持 NAT REDIRECT 透明代理；DNS 和 Ping 仍保留 nftables NAT `redirect` 动作。
-- `iproute_shunt=0`：`fwmark 0x1 → table 100 → local lo → TPROXY → 本机代理核心`。
-- `iproute_shunt=1`：`fwmark 0x1 → table 100 → 外置透明代理网关`，不执行本地 TPROXY。
-- 两种路径都沿用 Global Config 的 TCP/UDP 节点启用状态；PBR ON 不使用本地 TPROXY，但仍需为相应协议选择有效的全局节点以启用分类路径。
-- ACL Source 仅接受 MAC 地址；一条 ACL 可以包含多个 MAC。
-- 普通 ACL 只覆盖 TCP/UDP 的 Bypass、Proxy 和 Proxy Drop 端口，节点、DNS 和目的地址列表全部使用 Global Config。
-- Direct ACL 完整绕过 TCP、UDP、DNS hijack 和 Ping hijack；同一 MAC 同时命中多条 ACL 时 Direct 优先。
-- Ping hijack 只接收 IPv4 Echo Request；启用 IPv6 TProxy 时也接收 IPv6 Echo Request，但不处理 NDP、RA、SLAAC、PMTUD 或其它 ICMPv6 控制报文。
-
-实现细节、Before/After、23 项交付对照和实机待验证项见 [nftables 与 ACL 透明代理重构说明](docs/nftables与ACL透明代理重构说明.md)。本轮实机验证见 [冒烟测试记录](docs/冒烟测试记录.md)。已补充当前主路由上的真实 LAN 流量、设备策略、规则热更新不断流，以及 IPv4/IPv6 代理和直连的硬件卸载取证。
-
----
-
-# 自用网络拓扑示例
-
-以下是个人自用拓扑示例，不代表仓库默认配置；实际网络、接口与地址均以目标设备的 UCI 配置为准。示例使用两个独立 VLAN / 子网：
-
-| 网络 | VLAN | IPv4 网段 | 用途 |
-| --- | --- | --- | --- |
-| 主网 | VLAN 0 | `192.168.114.0/24` | PC、手机、NAS、服务器等普通终端 |
-| 代理网 | VLAN 114 | `192.168.113.0/24` | 外置透明代理机 |
-
-示例中的代理机地址：
-
-```text
-192.168.113.59
-```
-
-示例中的 OpenWrt 代理网接口：
-
-```text
-br-lan.114
-```
-
-在此示例中，需要代理的流量会通过：
-
-```text
-br-lan.114
-        │
-        ▼
-192.168.113.59
-```
-
-转发至外置代理机。
-
-## 重要
-
-> **主网与代理机必须位于相互隔离的 VLAN / 子网中。**
-
-即类似：
-
-```text
-主网：
-VLAN 0
-192.168.114.0/24
-
-代理网：
-VLAN 114
-192.168.113.0/24
-```
-
-不要将普通客户端与代理机放置在同一个二层网络中。
-
-另外，VLAN ID 与 IPv4 网段编号没有要求必须对应。
-
-例如本示例中：
-
-```text
-VLAN 114
-```
-
-承载：
-
-```text
-192.168.113.0/24
-```
-
-属于正常配置。
-
----
-
-# 整体架构
-
-```text
-                            Internet
-                               ▲
-                               │
-                  ┌────────────┴────────────┐
-                  │                         │
-               DIRECT                  Proxy Node
-                  ▲                         ▲
-                  │                         │
-                  │                  ┌──────┴──────┐
-                  │                  │ Proxy Host  │
-                  │                  │             │
-                  │                  │ mihomo      │
-                  │                  │ sing-box    │
-                  │                  │ Xray        │
-                  │                  └──────▲──────┘
-                  │                         │
-                  │                  192.168.113.59
-                  │                     VLAN 114
-                  │                         ▲
-                  │                         │
-            ┌─────┴─────────────────────────┴─────┐
-            │              OpenWrt                │
-            │                                     │
-            │ Passwall                            │
-            │ DNS / ACL / Rules                   │
-            │ nftables                            │
-            │ fwmark                              │
-            │ Policy Routing                      │
-            └─────────────────▲───────────────────┘
-                              │
-                            VLAN 0
-                              │
-                     192.168.114.0/24
-                              │
-                ┌─────────────┼─────────────┐
-                │             │             │
-               PC           Phone          NAS
-```
-
-整个网络中：
-
-```text
-OpenWrt
-=
-主路由
-```
-
-而：
-
-```text
-192.168.113.59
-=
-代理流量专用下一跳
-```
-
-代理机不是普通客户端的默认网关。
-
----
-
-# 工作原理
-
-标准 Passwall TProxy 模式通常为：
-
-```text
-Client
-   │
-   ▼
-OpenWrt
-   │
-   ▼
-Passwall
-   │
-   ▼
-TPROXY
-   │
-   ▼
-OpenWrt 本机代理核心
-   │
-   ▼
-Internet
-```
-
-本 Fork 开启：
-
-```text
-通过策略路由转发代理流量
-```
-
-后，Passwall 仍然负责判断流量应该：
-
-```text
-DIRECT
-PROXY
-BLOCK
-```
-
-但对于需要代理的流量，不再交给 OpenWrt 本机代理核心，而是通过 `fwmark + Policy Routing` 转发至外置代理机。
-
-整体逻辑为：
-
-```text
-Client
-   │
-   ▼
-OpenWrt
-   │
-   ▼
-Passwall / nftables
-   │
-   ├── DIRECT ─────────────► WAN
-   │
-   ├── BLOCK ──────────────► DROP
-   │
-   └── PROXY
-          │
-          ▼
-       fwmark 1
-          │
-          ▼
-      Route Table 100
-          │
-          ▼
-      外置代理机
-          │
-          ▼
-       Proxy Node
-```
-
----
-
-# 数据流
-
-## 直连流量
-
-当 Passwall 判定连接应当直连时：
-
-```text
-Client
-192.168.114.x
-      │
-      ▼
-OpenWrt
-      │
-      ▼
-Passwall
-      │
-      │ DIRECT
-      ▼
-WAN
-      │
-      ▼
-Internet
-```
-
-这部分流量不会经过代理机。
-
----
-
-## 代理流量
-
-当 Passwall 判定连接需要代理时：
-
-```text
-Client
-192.168.114.x
-      │
-      ▼
-OpenWrt
-      │
-      ▼
-Passwall / nftables
-      │
-      │ PROXY
-      ▼
-   fwmark 1
-      │
-      ▼
-Policy Routing
-Table 100
-      │
-      ▼
-br-lan.114
-      │
-      ▼
-192.168.113.59
-      │
-      ▼
-Transparent Proxy
-      │
-      ▼
-Proxy Node
-      │
-      ▼
-Internet
-```
-
-可以概括为：
-
-```text
-DIRECT
-   │
-   └── OpenWrt → WAN
-
-
-PROXY
-   │
-   └── OpenWrt
-          │
-          ▼
-       VLAN 114
-          │
-          ▼
-     192.168.113.59
-          │
-          ▼
-        Proxy
-```
-
----
-
-# Policy Routing
-
-开启：
-
-```text
-通过策略路由转发代理流量
-```
-
-之后，需要代理的连接会由 Passwall 标记。
-
-IPv4 核心逻辑类似：
-
-```sh
-ip rule add fwmark 1 lookup 100
-
-ip route replace 0.0.0.0/0 \
-    via 192.168.113.59 \
-    dev br-lan.114 \
-    table 100
-```
-
-因此：
-
-```text
-PROXY
-   │
-   ▼
-mark 1
-   │
-   ▼
-ip rule
-   │
-   ▼
-table 100
-   │
-   ▼
-192.168.113.59
-```
-
-而普通直连流量不会进入该策略路由表，继续按照 OpenWrt 正常路由表转发。
-
----
-
-# IPv6
-
-IPv6 使用相同的策略路由思路。
-
-例如：
-
-```sh
-ip -6 rule add fwmark 1 table 100
-
-ip -6 route replace ::/0 \
-    via <代理机 IPv6 地址> \
-    dev br-lan.114 \
-    table 100
-```
-
-对应：
-
-```text
-IPv6 PROXY
-     │
-     ▼
-  fwmark 1
-     │
-     ▼
-table 100
-     │
-     ▼
-代理机 IPv6
-     │
-     ▼
-Transparent Proxy
-```
-
-使用 IPv6 时需要确保：
-
-- 代理机具有正确的 IPv6 地址；
-- OpenWrt 能直接访问代理机 IPv6；
-- 代理机 IPv6 Forwarding 正常；
-- 透明代理核心支持 IPv6；
-- 回程路由正确。
-
----
-
-# 自用部署示例（实际值以目标机 UCI 为准）
-
-以下是个人部署示例，并非仓库默认 UCI 值：
-
-| 配置项 | 示例值 |
+| 项目 | 配置 |
 | --- | --- |
-| TCP 代理方式 | `TPROXY` |
-| IPv6 透明代理 | 开启 |
-| 策略路由转发代理流量 | 开启 |
-| 主网 VLAN | VLAN 0 |
-| 主网 IPv4 | `192.168.114.0/24` |
-| 代理网 VLAN | VLAN 114 |
-| 代理网 IPv4 | `192.168.113.0/24` |
-| 代理机 IPv4 | `192.168.113.59` |
-| 代理网接口 | `br-lan.114` |
-
-Passwall 中类似配置：
-
-```text
-TCP 代理方式：
-TPROXY
-
-IPv6 透明代理：
-开启
-
-通过策略路由转发代理流量：
-开启
-
-转发至 IPv4 网关：
-192.168.113.59
-
-转发至 IPv6 网关：
-<代理机 IPv6 地址>
-
-通过接口：
-br-lan.114
-```
-
----
-
-# VLAN 设计
-
-普通客户端位于：
+| 客户端网络 | VLAN 1，`br-lan.1`，`192.168.114.0/24` |
+| 客户端网关 | `192.168.114.1` |
+| 代理网络 | VLAN 2，`br-lan.2`，`192.168.113.0/24` |
+| 代理网主路由地址 | `192.168.113.1` |
+| IPv4 透明代理网关 | `192.168.113.10` |
+| IPv6 透明代理网关 | `fd07:a401:7468:1::1919` |
+| 直连、远端 DNS | 均为 `192.168.113.11:53`，UDP |
+| DNS 分流 | dnsmasq，默认使用直连 DNS |
+| 目标策略 | 中国 IPv4/IPv6 地址直连，其余目标默认代理 |
+| 转发模式 | PBR 开启，通过 `br-lan.2` 转发 |
+| 本机代理 | 开启 |
+| 全局节点 | Xray SOCKS，`192.168.113.10:1080`，UDP 与 TCP 相同 |
+| 本地 SOCKS | `127.0.0.1:1070` |
+| 启动延迟 | `0` 秒 |
 
 ```text
-VLAN 0
-192.168.114.0/24
+LAN 客户端 → 主路由分类
+                ├─ 直连 → WAN
+                ├─ 屏蔽 → 丢弃
+                └─ 代理 → mark 0x1 → table 100 → br-lan.2 → 外置透明代理网关
+
+客户端 DNS → 主路由 dnsmasq → 192.168.113.11:53
 ```
 
-例如：
+外置网关接收 IPv4/IPv6 透明流量，回程经主路由返回客户端。代理网关设备配置直连 MAC 策略，避免回程再次进入代理分类。DNS 服务的内部上游由 `192.168.113.11` 自行管理。
 
-```text
-192.168.114.10    PC
-192.168.114.20    Phone
-192.168.114.30    NAS
+## 分流与设备策略
+
+全局策略统一管理节点、DNS 和目标列表；设备策略仅按 MAC 覆盖端口行为，一条策略可填写多个 MAC。
+
+- 普通设备策略分别设置 TCP/UDP 的不代理端口、代理端口、代理目标丢弃端口。按绕过、代理目标丢弃、代理的顺序处理，其余直连；也可选择继承全局设置。
+- 代理目标丢弃仅作用于全局策略判定为代理的目标，不阻断同端口的直连目标。
+- 直连设备策略优先于普通策略，绕过 TCP/UDP 代理、DNS 劫持及 ICMP 接管。
+- ICMP 接管仅处理 IPv4/IPv6 Echo Request，不处理 NDP、RA 等 IPv6 控制报文。
+
+本机代理开启时，主路由普通 TCP/UDP 流量也按全局规则分类；配置为直连 DNS 的上游优先绕过。关闭本机代理后，普通本机 53 端口查询按系统路由发送；Xray DNS 使用核心配置的出口。
+
+## 转发与硬件加速
+
+支持两种转发模式，当前部署使用 PBR：
+
+| 模式 | 代理流量路径 |
+| --- | --- |
+| PBR 开启 | `mark 0x1 → table 100 → 外置透明代理网关` |
+| PBR 关闭 | `mark 0x1 → table 100 → local lo → 本机 Xray TPROXY` |
+
+两种模式均需选择有效的全局 TCP/UDP 节点以启用对应协议。PBR 下仍运行 Xray，并保留 SOCKS 1070，供规则下载和本机显式代理请求使用。
+
+PBR 开启时自动关闭 fw4 原生的软、硬件流量分载，使用 Passwall 自建 flowtable；加速接口通过 fw4 API 获取。原生开关关闭不代表 Passwall 的硬件卸载关闭。当前部署已通过真实连接的 `HW_OFFLOAD` 标记和 PPE 表项计数确认硬件转发。
+
+关闭 Passwall 后，固定开启原生 DNS 重定向及软、硬件流量分载。启用 Passwall DNS 劫持时，会关闭 dnsmasq 的原生 DNS 重定向。
+
+## 启动与热更新
+
+核心和 DNS 辅助进程统一由 procd 守护。启动延迟支持 `0`；接口地址尚未就绪时保留不可达路由，网络就绪后补齐 PBR 路由，不回落到普通出口。
+
+- 每次操作使用固定的配置快照，成功后保存为生效配置；运行状态和后续网络、规则热更新以生效配置为准。
+- 核心配置先生成并校验，失败保留原服务。仅备注、未引用节点或普通规则变化时，不重启核心。
+- NFT 表通过完整事务替换，DNS 配置按需更新并在失败时回滚。DNS 学习集合及 flowtable 在替换后重新积累。
+- hotplug 关注 `wan`、`wan6`、`lan`，并从“通过接口”反查对应的 netifd 逻辑接口。重复通知跳过，停止后的通知不会重新启动服务。
+- 延迟启动可取消；重复启停和热更新通过同一服务锁串行处理。
+
+常用命令：
+
+```sh
+/etc/init.d/passwall start
+/etc/init.d/passwall stop
+/etc/init.d/passwall restart
+/etc/init.d/passwall reload          # 核心变化时重启，否则热更新
+/etc/init.d/passwall reload rules    # 更新规则，不重启核心
+/etc/init.d/passwall reload network  # 按当前网络状态更新
 ```
 
-客户端的默认网关始终是 OpenWrt。
+运行状态位于 `/var/run/passwall/`，服务锁为 `/var/lock/passwall.lock`。正常探测和重载保持系统日志安静；操作结果与失败原因写入 Passwall 日志。
 
-客户端：
+## 功能范围
 
-- 不需要将代理机设置为默认网关；
-- 不需要配置 HTTP / SOCKS 代理；
-- 不需要安装额外代理客户端；
-- 不需要感知代理机的存在。
+页面使用 OpenWrt 原生 Lua CBI，入口为基础设置、节点、设备策略、规则、高级设置和日志。
 
-代理机位于独立网络：
+- 本机核心固定为 Xray，保留 SOCKS、HTTP、VMess、VLESS、Shadowsocks、Trojan、WireGuard，以及核心分流、均衡、前置代理、落地节点和接口出口。
+- 节点通过表单管理，支持手动测试；删除前检查节点引用，避免留下无效配置。
+- DNS 支持 UDP、TCP、Xray DoH 和 ChinaDNS-NG，正常处理 IPv4/IPv6。
+- 规则更新仅包含 GFW 域名、中国 IPv4、中国 IPv6 三个文本列表。手动与定时更新共用勾选；下载使用独立任务锁，不占用服务锁，发布失败保留原文件。
+- 日志页统一管理核心日志及详细运行日志，可查看运行、TCP、UDP 日志。
 
-```text
-VLAN 114
-192.168.113.0/24
-```
+不包含订阅、URL/二维码导入导出、自动延迟检测、组件更新及其他独立核心；不支持 GeoIP/GeoSite、FakeIP、DoT、dns2socks。程序使用标准路径，Xray 资源目录固定为 `/usr/share/v2ray/`。
 
-当前：
+## 验证与项目状态
 
-```text
-192.168.113.59
-```
+本轮开发已按约定范围完成验收，可以收尾。测试机覆盖初始化、0 秒启动、生命周期、热更新及失败保护；主路由覆盖真实 LAN 客户端的 IPv4/IPv6 TCP/UDP、设备策略、DNS、硬件卸载和下载跨热重载。主路由未断开 WAN，测试后配置恢复，核心 PID 保持一致。
 
-OpenWrt 通过：
+详细结果、硬件证据及测试边界见 [冒烟测试记录](docs/冒烟测试记录.md)。按约定未重新安装主路由，也未逐一验证所有远端节点协议。
 
-```text
-br-lan.114
-```
+## 上游
 
-与代理机通信。
-
-因此代理机可以理解为：
-
-> **专门用于 PROXY 流量的三层下一跳网关。**
-
----
-
-# 与传统旁路由的区别
-
-传统所谓旁路由经常采用：
-
-```text
-Client
-   │
-   ▼
-旁路由
-   │
-   ▼
-主路由
-   │
-   ▼
-Internet
-```
-
-或者通过 DHCP 将客户端默认网关下发为旁路由。
-
-本方案不是这种结构。
-
-普通客户端始终：
-
-```text
-Client
-   │
-   ▼
-OpenWrt
-```
-
-只有被 Passwall 判定为需要代理的连接才会进入：
-
-```text
-OpenWrt
-   │
-   ▼
-Policy Routing
-   │
-   ▼
-192.168.113.59
-```
-
-因此严格来说：
-
-> **代理机并不是传统旁路由，而是由 Policy Routing 调用的 External Transparent Proxy Gateway。**
-
----
-
-# 为什么采用这种架构
-
-该方案主要目的是将：
-
-```text
-网络控制 / 分流
-```
-
-和：
-
-```text
-实际代理处理
-```
-
-进行解耦。
-
-OpenWrt 负责：
-
-```text
-DHCP
-VLAN
-Routing
-Firewall
-DNS
-Passwall
-ACL
-Rule Set
-nftables
-Policy Routing
-```
-
-外置代理机负责：
-
-```text
-mihomo
-sing-box
-Xray
-节点管理
-Transparent Proxy
-实际代理连接
-```
-
-这样可以避免将越来越复杂、资源占用越来越高、更新频繁的代理核心直接运行在 OpenWrt 上。
-
-比较适合：
-
-```text
-OpenWrt
-   +
-PVE / Linux
-   +
-VM / LXC / Docker
-```
-
-或者：
-
-```text
-OpenWrt
-   +
-独立 Linux 主机
-```
-
-等部署环境。
-
----
-
-# 故障影响
-
-该架构下代理机主要影响：
-
-```text
-PROXY 流量
-```
-
-而不是整个 LAN 的正常三层网络。
-
-正常情况下：
-
-```text
-代理机正常
-
-DIRECT → 正常
-PROXY  → 正常
-```
-
-代理机异常时：
-
-```text
-代理机异常
-
-DIRECT → 仍可直接通过 OpenWrt / WAN
-PROXY  → 无法正常代理
-```
-
-因此相对于将全部客户端默认网关直接指向代理机，代理机故障对普通直连网络的影响更小。
-
----
-
-# Hardware Flow Offloading
-
-PBR 开启时，Passwall 创建带 `flags offload` 的专用 nftables flowtable。直连 TCP/UDP 在 packet mark 与 conntrack mark 均不为 `0x1` 时可进入该表。
-
-代理流量另有一条规则：conntrack 原方向、packet mark 为 `0x1` 的 TCP/UDP 连接也会加入 flowtable。该方向保留 table 100 选出的 PBR 下一跳；回程路由由内核从 main 表取得。实际硬件卸载仍取决于设备、驱动和内核支持。
-
-PBR 关闭时不会创建这张 PBR 专用 flowtable。
-
----
-
-# 软件 / 硬件流量分载注意事项
-
-启用：
-
-```text
-通过策略路由转发代理流量
-```
-
-时，Passwall 会自动关闭 OpenWrt 防火墙原生的软件及硬件流量分载，并使用自己的 PBR 专用 flowtable；接口由 OpenWrt fw4 API 自动获取。停止 Passwall 时会自动开启防火墙原生的软件及硬件流量分载。
-
----
-
-# 外置代理机要求
-
-外置代理机至少需要满足：
-
-1. 与普通客户端位于不同 VLAN / 子网；
-2. OpenWrt 可以直接访问代理机；
-3. 可以作为 OpenWrt 的三层下一跳；
-4. IPv4 Forwarding 正常；
-5. 如使用 IPv6，则 IPv6 Forwarding 正常；
-6. 已正确配置透明代理；
-7. TCP / UDP 转发规则正确；
-8. 回程路由正确；
-9. 不得形成代理流量路由环路。
-
-错误配置可能形成类似：
-
-```text
-OpenWrt
-   │
-   ▼
-Proxy
-   │
-   ▼
-OpenWrt
-   │
-   ▼
-Proxy
-   │
-   ▼
-...
-```
-
-因此配置代理机默认路由、策略路由以及透明代理规则时需要特别注意。
-
----
-
-# DNS 与规则分流
-
-启用全局 DNS Redirect 时，Passwall 会自动关闭 dnsmasq 的 DNS redirect；停止 Passwall 时会自动开启该项。
-
-## 规则保存与热更新
-
-规则列表保存时调用 `/etc/init.d/passwall reload rules`。该命令以 nftables 全表事务热重载规则，DNS 配置有变化时按需生效，不重启代理核心。
-
-- `start` / `stop` / `restart` 管理完整服务，重复启动不会重复创建进程；核心变更先在临时目录校验，校验失败保留正在运行的服务。
-- `reload rules` 用于规则列表热更新；`reload network` 用于网络事件；不带参数的 `reload` 在核心配置变化时重启服务，否则热更新。
-- 每次有效热更新都重新生成并事务替换整张 `inet passwall` 表，DNS 学习地址和 flowtable 随之重新积累。
-- hotplug 关注 `wan`、`wan6`、`lan`，并通过 netifd 反查“通过接口”对应的逻辑接口；重复通知读取当前状态后跳过，停止服务后不会被通知重新启动。
-- 下载规则先在独立临时目录校验，再交给统一锁内发布和应用；失败保留旧规则。
-
-延迟启动可由启停操作取消；停止流程会完成其余清理后汇总错误。DNS 辅助脚本直接生成普通配置文件，由外层统一校验、比较、发布及回滚。
-
-运行状态、procd 实例定义、实际监听端口及最近成功生成的规则保存在 `/var/run/passwall/`，服务操作统一使用 `/var/lock/passwall.lock`。
-
-PBR 模式主要改变的是：
-
-> **被 Passwall 判定为 PROXY 的流量最终被发送到哪里。**
-
-全局分流体系仍然保留在 OpenWrt 上，例如：
-
-- DNS
-- MAC ACL 端口策略
-- Direct List
-- Proxy List
-- Block List
-- GFW List
-- China List
-- Shunt List
-- IPv4 / IPv6 规则
-
-整体逻辑仍为：
-
-```text
-DNS / Rules
-     │
-     ▼
-Passwall
-     │
-     ▼
-DIRECT / PROXY / BLOCK
-     │
-     ├── DIRECT → WAN
-     │
-     ├── BLOCK  → DROP
-     │
-     └── PROXY
-            │
-            ▼
-      Policy Routing
-            │
-            ▼
-      External Proxy
-```
-
-因此外置代理机原则上只负责处理已经被 OpenWrt 判定为需要代理的透明代理流量。
-
----
-
-# 数据路径总结
-
-```text
-                             ┌──── DIRECT ─────► WAN
-                             │
-Client                       │
-VLAN 0                       │
-192.168.114.0/24             │
-      │                      │
-      ▼                      │
-   OpenWrt ─── Passwall ─────┤
-                             │
-                             └──── PROXY
-                                    │
-                                    ▼
-                                 fwmark 1
-                                    │
-                                    ▼
-                                table 100
-                                    │
-                                    ▼
-                                br-lan.114
-                                    │
-                                    ▼
-                                 VLAN 114
-                                    │
-                                    ▼
-                              192.168.113.59
-                                    │
-                                    ▼
-                             Transparent Proxy
-                                    │
-                                    ▼
-                                Proxy Node
-```
-
-一句话概括：
-
-> **OpenWrt 始终作为主路由，Passwall 负责分流；仅将需要代理的连接通过 Policy Routing 和独立代理 VLAN 转交给外置透明代理机。**
-
----
-
-# 当前实现范围
-
-客户端透明代理固定使用 TPROXY 与 nftables，兼容范围以本文开头列出的个人固定基线为准。
-
----
-
-# 已知问题
-
-本 Fork 有意固定兼容 `BGzEroll/immortalwrt` 的 `openwrt-23.05` 与 dnsmasq `2.90`，未移植新版 dnsmasq `conf-dir` 自动探测改动；现有全局 dnsmasq 配置注入目录和语义保持不变。
-
-相关背景可看此 [issue](https://github.com/xiaorouji/openwrt-passwall/issues/3455)。如果未来改变兼容基线，可参考上游 [commit 87051ecf](https://github.com/Openwrt-Passwall/openwrt-passwall/commit/87051ecf1ac3acfe53a5a63e6d59a3fdc18d6453)，但当前版本明确不移植该提交。
-
----
-
-# Upstream
-
-本项目 Fork 自：
-
-```text
-Openwrt-Passwall/openwrt-passwall
-```
-
-主要用于个人网络环境，以及以下架构的实验与维护：
-
-```text
-Passwall
-    +
-Policy Routing
-    +
-Dedicated Proxy VLAN
-    +
-External Transparent Proxy Gateway
-```
+Fork 自 [Openwrt-Passwall/openwrt-passwall](https://github.com/Openwrt-Passwall/openwrt-passwall)，遵循仓库许可证。
