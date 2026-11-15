@@ -1,7 +1,6 @@
 <div class="cbi-value passwall-rule-lazy-list" data-rule-name="<%=pcdata(self.rule_name)%>" data-rule-tab="<%=pcdata(self.rule_tab)%>">
 	<div>
-		<div id="passwall-rule-metadata-<%=pcdata(self.rule_name)%>" class="passwall-rule-summary"><%=pcdata(self.summary or "")%></div>
-		<textarea id="passwall-rule-content-<%=pcdata(self.rule_name)%>" class="cbi-input-textarea" style="width:100%" rows="45" wrap="off" readonly="readonly" spellcheck="false" aria-label="<%=pcdata(self.title)%>" aria-describedby="passwall-rule-metadata-<%=pcdata(self.rule_name)%> passwall-rule-status-<%=pcdata(self.rule_name)%>"></textarea>
-		<div id="passwall-rule-status-<%=pcdata(self.rule_name)%>" class="passwall-rule-status" role="status" aria-live="polite"><%:打开此标签时读取完整列表。%></div>
+		<textarea id="passwall-rule-content-<%=pcdata(self.rule_name)%>" class="cbi-input-textarea" style="width:100%" rows="45" wrap="off" readonly="readonly" spellcheck="false" aria-label="<%=pcdata(self.title)%>" aria-describedby="passwall-rule-status-<%=pcdata(self.rule_name)%>"></textarea>
+		<div id="passwall-rule-status-<%=pcdata(self.rule_name)%>" class="passwall-rule-status" role="status" aria-live="polite"><%=pcdata(self.summary or "")%></div>
 	</div>
 </div>

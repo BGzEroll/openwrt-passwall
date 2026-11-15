@@ -1,26 +1,23 @@
 <%
 local api = require "luci.passwall.api"
 -%>
-<div class="cbi-value" id="rule_update_actions">
-	<label class="cbi-value-title"><%:手动更新%></label>
-	<div class="cbi-value-field">
-		<label style="margin-inline-end:0.5em">
-			<input class="cbi-input-checkbox" type="checkbox" value="gfwlist" />
-			GFW
-		</label>
-		<label style="margin-inline-end:0.5em">
-			<input class="cbi-input-checkbox" type="checkbox" value="chnroute" checked="checked" />
-			中国 IPv4
-		</label>
-		<label style="margin-inline-end:0.5em">
-			<input class="cbi-input-checkbox" type="checkbox" value="chnroute6" checked="checked" />
-			中国 IPv6
-		</label>
-		<input class="btn cbi-button cbi-button-apply" type="button" data-rule-update-start="1" value="<%:立即更新%>" />
-		<div data-rule-update-status role="status" aria-live="polite"><%:打开更新标签时检查任务状态。%></div>
-		<div class="cbi-value-description"><%:使用已保存的规则地址；本次选择仅影响手动更新，不修改定时更新设置。%></div>
-	</div>
+<%
+local selected = {}
+for name in (self:cfgvalue(section) or ""):gmatch("%S+") do selected[name] = true end
+-%>
+<%+cbi/valueheader%>
+<div id="rule_update_actions">
+	<input type="hidden" name="<%=cbid%>" value="" />
+	<% for _, item in ipairs({{"gfwlist", "GFW"}, {"chnroute", "中国 IPv4"}, {"chnroute6", "中国 IPv6"}}) do %>
+	<label style="margin-inline-end:0.5em">
+		<input class="cbi-input-checkbox" type="checkbox" name="<%=cbid%>" value="<%=item[1]%>"<%=ifattr(selected[item[1]], "checked", "checked")%> />
+		<%=item[2]%>
+	</label>
+	<% end %>
+	<input class="btn cbi-button cbi-button-apply" type="button" data-rule-update-start="1" value="<%:立即更新%>" />
+	<div data-rule-update-status role="status" aria-live="polite"></div>
 </div>
+<%+cbi/valuefooter%>
 
 <script type="text/javascript">
 	//<![CDATA[
@@ -66,8 +63,6 @@ local api = require "luci.passwall.api"
 			var disabled = running || startRequest;
 			button.disabled = disabled;
 			button.value = startRequest ? "<%:提交中…%>" : (running ? "<%:更新中…%>" : "<%:立即更新%>");
-			for (var i = 0; i < checkboxes.length; i++)
-				checkboxes[i].disabled = running || startRequest;
 		}
 
 		function stopPolling() {
@@ -112,8 +107,10 @@ local api = require "luci.passwall.api"
 			}
 
 			var details = [message || label];
-			if (!running && result.finished_at)
-				details.push("<%:结束时间%>：" + formatTimestamp(result.finished_at));
+			if (!running && result.finished_at) {
+				var timeLabel = state === "done" ? "<%:更新时间%>" : "<%:任务结束时间%>";
+				details.push(timeLabel + "：" + formatTimestamp(result.finished_at));
+			}
 			statusNode.textContent = details.join("；");
 			setControls();
 			if (running)

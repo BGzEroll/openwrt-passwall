@@ -20,7 +20,11 @@ if ! flock -n 8; then
 	exit 75
 fi
 : >/var/run/passwall/rule-update.error || exit 1
-lua "$APP/rule_update.lua" prepare >/dev/null || exit 1
+if [ "$1" = start ]; then
+	lua "$APP/rule_update.lua" prepare "$2" >/dev/null || exit 1
+else
+	lua "$APP/rule_update.lua" prepare >/dev/null || exit 1
+fi
 export PASSWALL_RULE_UPDATE_LOCKED=1
 run_worker() {
 	if [ -n "$1" ]; then

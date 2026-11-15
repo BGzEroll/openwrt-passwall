@@ -1,6 +1,13 @@
 <%
 local api = require "luci.passwall.api"
 local xml = require "luci.xml"
+local active = {}
+if api.fs.access("/var/run/passwall/running") then
+	for _, protocol in ipairs({"TCP", "UDP"}) do
+		local node = api.trim(api.fs.readfile("/tmp/etc/passwall/acl/default/" .. protocol .. ".id") or "")
+		if node ~= "" then active[node] = true end
+	end
+end
 local function escape(value)
 	local result = xml.pcdata(tostring(value or ""))
 	result = result:gsub('"', "&quot;")
@@ -10,6 +17,7 @@ end
 -%>
 
 <div id="passwall-node-list"
+	data-running-nodes="<%=escape(api.jsonc.stringify(active))%>"
 	data-copy-url="<%=escape(api.url("copy_node"))%>"
 	data-delete-url="<%=escape(api.url("delete_select_nodes"))%>"
 	data-clear-url="<%=escape(api.url("clear_all_nodes"))%>"
@@ -27,6 +35,8 @@ end
 #cbi-passwall-nodes .cbi-section-actions > div {
 	display:flex; align-items:center; justify-content:center; gap:0.25em; flex-wrap:nowrap;
 }
+#cbi-passwall-nodes .passwall-node-active,
+#cbi-passwall-nodes .passwall-node-active > .td { background-color:#94e1ff; }
 #cbi-passwall-nodes [data-node-select] { margin:0; flex:0 0 auto; }
 </style>
 
@@ -39,11 +49,13 @@ end
 		if (!config || !table)
 			return;
 
+		var active = JSON.parse(config.getAttribute('data-running-nodes'));
 		table.querySelectorAll('tr.cbi-section-table-row').forEach(function(row) {
 			var identity = row.querySelector('[data-node-section]');
 			var actions = row.querySelector('.cbi-section-actions > div');
 			if (!identity || !actions) return;
 			var section = identity.getAttribute('data-node-section');
+			if (active[section]) row.classList.add('passwall-node-active');
 			var checkbox = document.createElement('input');
 			checkbox.type = 'checkbox';
 			checkbox.className = 'cbi-input-checkbox';
@@ -58,8 +70,7 @@ end
 			copy.setAttribute('data-section', section);
 			actions.insertBefore(copy, actions.firstChild);
 			actions.insertBefore(checkbox, copy);
-			[['.cbi-button-up','上移'], ['.cbi-button-down','下移'],
-			 ['.cbi-button-edit','编辑'], ['.cbi-button-remove','删除']].forEach(function(item) {
+			[['.cbi-button-edit','编辑'], ['.cbi-button-remove','删除']].forEach(function(item) {
 				var button = actions.querySelector(item[0]);
 				button.value = item[1];
 				button.title = item[1];
@@ -90,12 +101,9 @@ end
 
 		function runTest(button) {
 			var type = button.getAttribute("data-test");
-			var result = button.parentNode.querySelector(".node-test-result");
 			var requestUrl = type === "url" ? config.getAttribute("data-urltest-url") : config.getAttribute("data-ping-url");
 			var params;
 
-			if (!result)
-				return;
 			if (button.getAttribute("aria-disabled") === "true")
 				return;
 
@@ -105,7 +113,7 @@ end
 				var address = button.getAttribute("data-address");
 				var port = button.getAttribute("data-port");
 				if (!address || !port) {
-					result.textContent = "地址或端口为空";
+					button.textContent = "地址或端口为空";
 					return;
 				}
 				params = {
@@ -116,22 +124,27 @@ end
 			}
 
 			button.setAttribute("aria-disabled", "true");
-			result.textContent = "检测中…";
+			button.textContent = "检测中…";
+			button.style.color = "";
 			XHR.get(requestUrl, params, function(xhr, data) {
 				button.setAttribute("aria-disabled", "false");
 				if (!xhr || xhr.status !== 200) {
-					result.textContent = "错误";
+					button.textContent = "错误";
+					button.style.color = "red";
 					return;
 				}
 
 				var value = type === "url" ? data && data.use_time : data && data.ping;
 				if (value == null || String(value).trim() === "") {
-					result.textContent = "超时";
+					button.textContent = "超时";
+					button.style.color = "red";
 					return;
 				}
 
 				var milliseconds = parseFloat(value);
-				result.textContent = !isNaN(milliseconds) && isFinite(milliseconds) ? Math.round(milliseconds) + " ms" : "超时";
+				var success = isFinite(milliseconds) && milliseconds >= 0;
+				button.textContent = success ? Math.round(milliseconds) + " ms" : "超时";
+				button.style.color = success ? "green" : "red";
 			});
 		}
 

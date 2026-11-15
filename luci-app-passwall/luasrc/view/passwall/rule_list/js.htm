@@ -42,9 +42,8 @@ local api = require "luci.passwall.api"
 
 			var name = root.getAttribute("data-rule-name");
 			var textarea = root.querySelector("textarea[readonly]");
-			var summary = root.querySelector(".passwall-rule-summary");
 			var status = root.querySelector(".passwall-rule-status");
-			if (!name || !textarea || !summary || !status)
+			if (!name || !textarea || !status)
 				return;
 
 			root._ruleLoading = true;
@@ -70,9 +69,7 @@ local api = require "luci.passwall.api"
 					details.push("条目：" + result.count);
 				if (result.updated_at)
 					details.push("更新时间：" + formatTimestamp(result.updated_at));
-				if (details.length)
-					summary.textContent = details.join("；");
-				status.textContent = result.count != null ? "已加载 " + result.count + " 条规则" : "已加载完整列表";
+				status.textContent = details.length ? details.join("；") : "已加载完整列表";
 			});
 		}
 

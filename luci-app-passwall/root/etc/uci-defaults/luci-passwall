@@ -40,7 +40,7 @@ for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p
 done
 uci -q delete 'passwall.@global_rules[0].chnlist_update'
 uci -q delete 'passwall.@global_rules[0].chnlist_url'
-uci -q delete 'passwall.@global_other[0].auto_detection_time'
+while uci -q delete 'passwall.@global_other[0]'; do :; done
 rm -f /usr/share/passwall/rules/chnlist
 # One-time conversion keeps existing proxy endpoints while removing old types.
 if [ "$(uci -q get 'passwall.@global[0].dns_mode')" = dns2socks ]; then

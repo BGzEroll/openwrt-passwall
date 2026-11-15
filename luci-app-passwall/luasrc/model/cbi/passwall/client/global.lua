@@ -305,7 +305,7 @@ o:value("remote", translate("Remote DNS"))
 o:value("direct", translate("Direct DNS"))
 o:depends({dns_shunt = "dnsmasq", tcp_proxy_mode = "proxy", chn_list = "direct"})
 
-o = s:taboption("DNS", Flag, "dns_redirect", translate("DNS 劫持"), translate("启用后关闭系统 DNS 重定向；停用或停止 Passwall 后重新开启。"))
+o = s:taboption("DNS", Flag, "dns_redirect", translate("DNS 劫持"), translate("启用后关闭系统 DNS 重定向；关闭 Passwall 后重新开启。"))
 o.default = "1"
 
 s:tab("Proxy", translate("分流"))
@@ -344,7 +344,7 @@ udp_proxy_mode:value("disable", translate("No Proxy"))
 udp_proxy_mode:value("proxy", translate("Proxy"))
 udp_proxy_mode.default = "proxy"
 
-o = s:taboption("Proxy", Flag, "localhost_proxy", translate("本机透明代理"))
+o = s:taboption("Proxy", Flag, "localhost_proxy", translate("本机代理"))
 o.default = "0"
 o.rmempty = false
 
@@ -353,5 +353,7 @@ for k, v in pairs(nodes_table) do
 	udp_node:value(v.id, v["remark"])
 end
 
+
+m:append(Template("passwall/style"))
 
 return m

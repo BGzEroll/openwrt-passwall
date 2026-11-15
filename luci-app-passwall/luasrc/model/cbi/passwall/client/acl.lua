@@ -55,4 +55,6 @@ o.cfgvalue = function(t, n)
 	return e
 end
 
+m:append(Template("passwall/style"))
+
 return m

@@ -49,7 +49,7 @@ table.sort(mac_hints, function(a, b)
 end)
 
 sources = s:option(DynamicList, "sources", translate("设备 MAC 地址"),
-	translate("仅支持 MAC 地址，可填多个直连的 LAN、Wi-Fi、网桥或 VLAN 设备。"))
+	translate("仅支持 MAC 地址。"))
 sources.cast = "string"
 for _, hint in ipairs(mac_hints) do
 	sources:value(hint.mac, string.format("%s（%s）", hint.mac, hint.ip))
@@ -106,13 +106,15 @@ add_port_option("tcp_no_redir_ports", translate("TCP 不代理端口"), "tcp_no_
 add_port_option("udp_no_redir_ports", translate("UDP 不代理端口"), "udp_no_redir_ports",
 	translate("这些端口优先绕过 Passwall。"), { "1:65535" })
 add_port_option("tcp_proxy_drop_ports", translate("TCP 代理丢弃端口"), "tcp_proxy_drop_ports",
-	translate("仅当共享全局策略将目标判定为代理时丢弃。"))
+	nil)
 add_port_option("udp_proxy_drop_ports", translate("UDP 代理丢弃端口"), "udp_proxy_drop_ports",
-	translate("仅当共享全局策略将目标判定为代理时丢弃。"), { "443" })
+	nil, { "443" })
 add_port_option("tcp_redir_ports", translate("TCP 代理端口"), "tcp_redir_ports",
-	translate("TCP 透明代理使用 TPROXY。"),
+	nil,
 	{ "1:65535", "80,443", "80:65535", "1:443" })
 add_port_option("udp_redir_ports", translate("UDP 代理端口"), "udp_redir_ports", nil,
 	{ "1:65535", "53" })
+
+m:append(Template("passwall/style"))
 
 return m

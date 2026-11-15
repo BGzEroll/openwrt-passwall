@@ -139,4 +139,6 @@ ip_list.validate = function(self, value)
 end
 ip_list.description = translate("支持 IPv4/IPv6 地址和 CIDR；# 开头的行为注释。")
 
+m:append(Template("passwall/style"))
+
 return m

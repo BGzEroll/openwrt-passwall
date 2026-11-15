@@ -3,13 +3,6 @@ local appname = "passwall"
 
 m = Map(appname)
 
--- [[ Other Settings ]]--
-s = m:section(TypedSection, "global_other")
-s.anonymous = true
-
-o = s:option(Flag, "show_node_info", translate("显示地址和端口"))
-o.default = "0"
-
 -- [[ Node List ]]--
 s = m:section(TypedSection, "nodes")
 s.anonymous = true
@@ -53,5 +46,7 @@ add_cell("tcping", "TCP 延迟", "7em")
 add_cell("_url_test", translate("代理延迟"), "6em")
 
 m:append(Template(appname .. "/node_list/node_list"))
+
+m:append(Template("passwall/style"))
 
 return m

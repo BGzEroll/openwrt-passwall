@@ -21,4 +21,6 @@ o = s:option(Flag, "log_debug", translate("详细运行日志"))
 o.default = "0"
 o.rmempty = false
 m:append(Template("passwall/log/log"))
+m:append(Template("passwall/style"))
+
 return m

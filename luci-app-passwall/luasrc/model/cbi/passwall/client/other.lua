@@ -71,7 +71,7 @@ o.validate = port_validate
 
 o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发代理流量"))
 o.default = 0
-o.description = translate("启用后关闭防火墙原生软硬件分载；停用或停止 Passwall 后重新开启。")
+o.description = translate("启用后关闭防火墙原生软硬件分载；关闭 Passwall 后重新开启。")
 
 o = s:option(Value, "iproute_shunt_gw_v4", translate("转发至 IPv4 网关"))
 o:depends("iproute_shunt", true)
@@ -88,16 +88,17 @@ o:depends("iproute_shunt", true)
 o.placeholder = 'br-lan'
 
 o = s:option(DummyValue, "iproute_shunt_offloading_interface", translate("自动检测的硬件加速接口"))
+o.template = "passwall/value_text"
 o:depends("iproute_shunt", true)
 o.cfgvalue = function(self, section)
 	local interfaces = api.trim(api.sys.exec("ucode /usr/share/passwall/offload.uc 2>/dev/null") or "")
 	return interfaces ~= "" and interfaces or "无可用接口"
 end
 
-o = s:option(Flag, "accept_icmp", translate("接管 ICMP（Ping）"))
+o = s:option(Flag, "accept_icmp", translate("接管 ICMP"))
 o.default = 1
 
-o = s:option(Flag, "accept_icmpv6", translate("接管 ICMPv6（IPv6 Ping）"))
+o = s:option(Flag, "accept_icmpv6", translate("接管 ICMPv6"))
 o.default = 1
 
 s_xray = m:section(TypedSection, "global_xray", "Xray " .. translate("设置"))
@@ -136,5 +137,7 @@ o:depends({sniffing_override_dest = true})
 
 o = s_xray:option(Value, "buffer_size", translate("单连接缓冲区大小（KB）"))
 o.datatype = "uinteger"
+
+m:append(Template("passwall/style"))
 
 return m

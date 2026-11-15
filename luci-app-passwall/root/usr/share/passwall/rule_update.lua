@@ -23,6 +23,19 @@ end
 local function active(job) return job.state == "downloading" or job.state == "applying" end
 local operation = arg[1]
 if operation == "prepare" then
+	if arg[2] then
+		local selected, count = {}, 0
+		for entry in arg[2]:gmatch("[^,]+") do
+			assert(entry == "gfwlist" or entry == "chnroute" or entry == "chnroute6", "无效的更新列表")
+			selected[entry], count = true, count + 1
+		end
+		assert(count > 0, "请选择更新列表")
+		local section = assert(ucic:get_first(name, "global_rules"))
+		for _, entry in ipairs({"gfwlist", "chnroute", "chnroute6"}) do
+			assert(ucic:set(name, section, entry .. "_update", selected[entry] and "1" or "0"))
+		end
+		assert(ucic:commit(name), "更新选择保存失败")
+	end
 	print(json.stringify(job_write("downloading", "准备下载", true)))
 	os.exit(0)
 elseif operation == "status" or operation == "status-idle" or operation == "busy" or operation == "failed" then

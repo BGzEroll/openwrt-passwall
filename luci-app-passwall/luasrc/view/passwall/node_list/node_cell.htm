@@ -24,7 +24,6 @@ end
 	local group = get("group")
 	local address = get("address")
 	local port = get("port")
-	local show_info = config:get("@global_other[0]", "show_node_info") == "1"
 
 	if node_type == "Xray" then
 		local xray_protocols = {
@@ -46,21 +45,20 @@ end
 	node_type = translate(node_type)
 	local address_port = address
 	if address:find(":", 1, true) then
-		address_port = "[" .. address .. "]:" .. port
+		address_port = "[" .. api.get_ipv6_only(address) .. "]:" .. port
 	else
 		address_port = address .. ":" .. port
 	end
 %>
-	<span class="node-type" data-node-section="<%=escape(section_id)%>"><%=escape(node_type)%></span>
+	<div class="node-name"><span class="node-type" data-node-section="<%=escape(section_id)%>"><%=escape(node_type)%></span>
 	<% if remarks ~= "" then %><span class="node-remarks">：<%=escape(remarks)%></span><% end %>
-	<% if group ~= "" then %><span class="node-group">（<%=escape(group)%>）</span><% end %>
-	<% if show_info and address ~= "" and port ~= "" then %><span class="node-address">（<%=escape(address_port)%>）</span><% end %>
+	<% if group ~= "" then %><span class="node-group">（<%=escape(group)%>）</span><% end %></div>
+	<% if address ~= "" and port ~= "" then %><div class="node-address">（<%=escape(address_port)%>）</div><% end %>
 <% elseif field == "ping" or field == "tcping" or field == "_url_test" then
 	local address = get("address")
 	local port = get("port")
 	local test_type = field == "_url_test" and "url" or (field == "tcping" and "tcping" or "icmp")
 %>
-	<a href="#" data-node-action="test" data-test="<%=test_type%>" data-section="<%=escape(section_id)%>" data-address="<%=escape(address)%>" data-port="<%=escape(port)%>" aria-disabled="false">测试</a>
-	<span class="node-test-result" aria-live="polite"></span>
+	<a href="#" data-node-action="test" data-test="<%=test_type%>" data-section="<%=escape(section_id)%>" data-address="<%=escape(address)%>" data-port="<%=escape(port)%>" aria-disabled="false" aria-live="polite" style="white-space:nowrap">测试</a>
 <% end %>
 <%+cbi/valuefooter%>

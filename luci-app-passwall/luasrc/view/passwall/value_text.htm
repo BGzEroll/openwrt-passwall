@@ -1,0 +1,5 @@
+<%+cbi/valueheader%>
+<% local value = self:cfgvalue(section) or self.default or "" -%>
+<span class="passwall-value-text"><%=pcdata(value)%></span>
+<input type="hidden" id="<%=cbid%>" value="<%=pcdata(value)%>" />
+<%+cbi/valuefooter%>

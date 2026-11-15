@@ -29,4 +29,6 @@ end
 local xray_form = loadfile(types_dir .. "ray.lua")
 setfenv(xray_form, getfenv(1))(m, s)
 
+m:append(Template("passwall/style"))
+
 return m

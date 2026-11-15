@@ -5,15 +5,7 @@
 		<% for _, name in ipairs({"TCP", "UDP", "DNS"}) do %>
 		<div class="passwall-status-card">
 			<div class="passwall-status-icon passwall-status-<%=name:lower()%>" aria-hidden="true">
-				<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-				<% if name == "TCP" then %>
-					<path d="M4 7h16m-5-5 5 5-5 5M20 17H4m5-5-5 5 5 5" />
-				<% elseif name == "UDP" then %>
-					<path d="m21 3-7 18-4-8-8-4 19-6ZM10 13 21 3" />
-				<% else %>
-					<circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3 12h18M5 6h14M5 18h14" />
-				<% end %>
-				</svg>
+				<%=name%>
 			</div>
 			<div><strong><%=name%></strong><br /><span id="status_<%=name:lower()%>">—</span></div>
 		</div>
@@ -29,7 +21,7 @@
 }
 #passwall-status .passwall-status-icon {
 	display:flex; align-items:center; justify-content:center;
-	flex:0 0 44px; height:44px; border-radius:50%; color:#fff;
+	flex:0 0 44px; height:44px; border-radius:50%; color:#fff; font-weight:700; font-size:0.75rem;
 }
 #passwall-status .passwall-status-tcp { background:#2eb8ce; }
 #passwall-status .passwall-status-udp { background:#f7ad39; }

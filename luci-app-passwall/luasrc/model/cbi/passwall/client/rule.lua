@@ -193,23 +193,27 @@ for day = 0, 7 do
 end
 o.rmempty = true
 
-o = rules:taboption("update", Flag, "gfwlist_update", translate("定时更新 GFW 域名"))
-o.default = 0
-o.rmempty = false
-o:depends("auto_update", true)
-
-o = rules:taboption("update", Flag, "chnroute_update", translate("定时更新中国 IPv4"))
-o.default = 1
-o.rmempty = false
-o:depends("auto_update", true)
-
-o = rules:taboption("update", Flag, "chnroute6_update", translate("定时更新中国 IPv6"))
-o.default = 1
-o.rmempty = false
-o:depends("auto_update", true)
-
-local manual_update = rules:taboption("update", DummyValue, "manual_update", translate("手动更新"))
-manual_update.template = "passwall/rule/rule_version"
+local update_lists = {"gfwlist", "chnroute", "chnroute6"}
+local update_defaults = {gfwlist="0", chnroute="1", chnroute6="1"}
+o = rules:taboption("update", MultiValue, "update_selection", translate("更新列表"), translate("手动与定时共用；立即更新会保存本次勾选。"))
+o:value("gfwlist", "GFW")
+o:value("chnroute", "中国 IPv4")
+o:value("chnroute6", "中国 IPv6")
+o.rmempty = true
+o.template = "passwall/rule/rule_version"
+o.cfgvalue = function(self, section)
+	local selected = {}
+	for _, name in ipairs(update_lists) do
+		if (m:get(section, name .. "_update") or update_defaults[name]) == "1" then selected[#selected + 1] = name end
+	end
+	return table.concat(selected, " ")
+end
+o.write = function(self, section, value)
+	local selected = {}
+	for name in (value or ""):gmatch("%S+") do selected[name] = true end
+	for _, name in ipairs(update_lists) do m:set(section, name .. "_update", selected[name] and "1" or "0") end
+end
+o.remove = function(self, section) self:write(section, "") end
 
 local shunt = m:section(TypedSection, "shunt_rules", translate("核心分流规则"),
 	translate("供 Xray 核心分流节点使用，按列表顺序匹配。"))
@@ -239,5 +243,7 @@ m.apply_on_parse = false
 function m.on_apply(self)
 	sys.call("/etc/init.d/passwall reload > /dev/null 2>&1 &")
 end
+
+m:append(Template("passwall/style"))
 
 return m
