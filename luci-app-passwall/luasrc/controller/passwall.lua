@@ -3,6 +3,7 @@
 
 module("luci.controller.passwall", package.seeall)
 local api = require "luci.passwall.api"
+local node_refs = require "luci.passwall.node_refs"
 local appname = "passwall"			-- not available
 local uci = luci.model.uci.cursor()		-- in funtion index()
 local http = require "luci.http"
@@ -78,22 +79,24 @@ function index_status()
 end
 
 function ping_node()
-	local index = luci.http.formvalue("index")
-	local address = luci.http.formvalue("address")
-	local port = luci.http.formvalue("port")
-	local type = luci.http.formvalue("type") or "icmp"
-	local e = {}
-	e.index = index
-	if type == "tcping" and luci.sys.exec("echo -n $(command -v tcping)") ~= "" then
-		if api.is_ipv6(address) then
-			address = api.get_ipv6_only(address)
-		end
-		e.ping = luci.sys.exec(string.format("echo -n $(tcping -q -c 1 -i 1 -t 2 -p %s %s 2>&1 | grep -o 'time=[0-9]*' | awk -F '=' '{print $2}') 2>/dev/null", port, address))
-	else
-		e.ping = luci.sys.exec("echo -n $(ping -c 1 -W 1 %q 2>&1 | grep -o 'time=[0-9]*' | awk -F '=' '{print $2}') 2>/dev/null" % address)
-	end
-	luci.http.prepare_content("application/json")
-	luci.http.write_json(e)
+ local address = http.formvalue("address") or ""
+ local port = tonumber(http.formvalue("port"))
+ local kind = http.formvalue("type") or "icmp"
+ if api.is_ipv6(address) then address = api.get_ipv6_only(address) end
+ if not (api.is_ip(address) or api.datatypes.hostname(address)) or
+  (kind ~= "icmp" and kind ~= "tcping") or
+  (kind == "tcping" and (not port or port < 1 or port > 65535 or port % 1 ~= 0)) then
+  http.status(400, "Invalid probe target"); return
+ end
+ local command
+ if kind == "tcping" then
+  command = "tcping -q -c 1 -i 1 -t 2 -p " .. port .. " " .. util.shellquote(address)
+ else
+  command = "ping -c 1 -W 1 " .. util.shellquote(address)
+ end
+ local output = luci.sys.exec(command .. " 2>&1")
+ local delay = output:match("time[=<]([%d.]+)")
+ http_write_json({index=http.formvalue("index"), ping=delay})
 end
 
 function urltest_node()
@@ -137,18 +140,31 @@ function clear_all_nodes()
 end
 
 function delete_select_nodes()
-	local ids = luci.http.formvalue("ids")
-	string.gsub(ids, '[^' .. "," .. ']+', function(w)
-		if (uci:get(appname, "@global[0]", "tcp_node") or "nil") == w then
+	local ids, err = node_refs.parse_ids(http.formvalue("ids"))
+	if not ids then
+		http.status(400, "Invalid node selection")
+		http_write_json({message = err})
+		return
+	end
+	local ok, message = node_refs.check_delete(uci, ids)
+	if not ok then
+		http.status(409, "Node is still referenced")
+		http_write_json({message = message})
+		return
+	end
+
+	for _, id in ipairs(ids) do
+		if uci:get(appname, "@global[0]", "tcp_node") == id then
 			uci:set(appname, '@global[0]', "tcp_node", "nil")
 		end
-		if (uci:get(appname, "@global[0]", "udp_node") or "nil") == w then
+		if uci:get(appname, "@global[0]", "udp_node") == id then
 			uci:set(appname, '@global[0]', "udp_node", "nil")
 		end
-		uci:delete(appname, w)
-	end)
+		uci:delete(appname, id)
+	end
 	uci:commit(appname)
 	luci.sys.call("/etc/init.d/" .. appname .. " restart > /dev/null 2>&1 &")
+	http_write_json({code = 0})
 end
 
 function update_rules()

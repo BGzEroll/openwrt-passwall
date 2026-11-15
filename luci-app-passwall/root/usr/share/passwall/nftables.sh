@@ -471,8 +471,9 @@ setup_localhost() {
 
 	local local_dns dns_address dns_port
 	for local_dns in $(echo "$IPT_APPEND_DNS" | tr ',' ' '); do
-		dns_address=$(echo "$local_dns" | sed -E 's/(@|\[)?([0-9a-fA-F:.]+)(@|#|$).*/\2/')
-		dns_port=$(echo "$local_dns" | sed -nE 's/.*#([0-9]+)$/\1/p')
+		dns_address=${local_dns%#*}
+		dns_port=${local_dns##*#}
+		[ "$dns_address" != "$local_dns" ] || dns_port=53
 		if echo "$dns_address" | grep -q ':'; then
 			nft_emit "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE meta l4proto { tcp, udp } ip6 daddr $dns_address th dport ${dns_port:-53} counter return"
 		else

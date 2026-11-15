@@ -21,7 +21,6 @@ local header_type_list = {
 	"none", "srtp", "utp", "wechat-video", "dtls", "wireguard"
 }
 
-local xray_version = api.get_app_version("xray")
 -- [[ Xray ]]
 
 o = s:option(ListValue, option_name("protocol"), translate("Protocol"))
@@ -89,28 +88,22 @@ o:value("leastPing")
 o.default = "leastPing"
 
 -- Fallback Node
-if api.compare_versions(xray_version, ">=", "1.8.10") then
-	local o = s:option(ListValue, option_name("fallback_node"), translate("Fallback Node"))
-	if api.compare_versions(xray_version, ">=", "1.8.12") then
-		o:depends({ [option_name("protocol")] = "_balancing" })
-	else
-		o:depends({ [option_name("balancingStrategy")] = "leastPing" })
-	end
-	local function check_fallback_chain(fb)
-		for k, v in pairs(fallback_table) do
-			if v.fallback == fb then
-				fallback_table[k] = nil
-				check_fallback_chain(v.id)
-			end
+local o = s:option(ListValue, option_name("fallback_node"), translate("Fallback Node"))
+o:depends({ [option_name("protocol")] = "_balancing" })
+local function check_fallback_chain(fb)
+	for k, v in pairs(fallback_table) do
+		if v.fallback == fb then
+			fallback_table[k] = nil
+			check_fallback_chain(v.id)
 		end
 	end
-	-- 检查fallback链，去掉会形成闭环的balancer节点
-	if is_balancer then
-		check_fallback_chain(arg[1])
-	end
-	for k, v in pairs(fallback_table) do o:value(v.id, v.remark) end
-	for k, v in pairs(nodes_table) do o:value(v.id, v.remark) end
 end
+-- 检查fallback链，去掉会形成闭环的balancer节点
+if is_balancer then
+	check_fallback_chain(arg[1])
+end
+for k, v in pairs(fallback_table) do o:value(v.id, v.remark) end
+for k, v in pairs(nodes_table) do o:value(v.id, v.remark) end
 
 -- 探测地址
 local ucpu = s:option(Flag, option_name("useCustomProbeUrl"), translate("自定义探测地址"))
@@ -133,13 +126,8 @@ pi:depends({ [option_name("balancingStrategy")] = "leastPing" })
 pi.default = "1m"
 pi.description = translate("例如 10s、1m、2h45m。")
 
-if api.compare_versions(xray_version, ">=", "1.8.12") then
-	ucpu:depends({ [option_name("protocol")] = "_balancing" })
-	pi:depends({ [option_name("protocol")] = "_balancing" })
-else
-	ucpu:depends({ [option_name("balancingStrategy")] = "leastPing" })
-	pi:depends({ [option_name("balancingStrategy")] = "leastPing" })
-end
+ucpu:depends({ [option_name("protocol")] = "_balancing" })
+pi:depends({ [option_name("protocol")] = "_balancing" })
 
 
 -- [[ 分流模块 ]]
@@ -393,10 +381,8 @@ o = s:option(Value, option_name("wireguard_mtu"), translate("MTU"))
 o.default = "1420"
 o:depends({ [option_name("protocol")] = "wireguard" })
 
-if api.compare_versions(xray_version, ">=", "1.8.0") then
-	o = s:option(Value, option_name("wireguard_reserved"), "Reserved", translate("逗号分隔的十进制数字，或 Base64。"))
-	o:depends({ [option_name("protocol")] = "wireguard" })
-end
+o = s:option(Value, option_name("wireguard_reserved"), "Reserved", translate("逗号分隔的十进制数字，或 Base64。"))
+o:depends({ [option_name("protocol")] = "wireguard" })
 
 o = s:option(Value, option_name("wireguard_keepAlive"), translate("Keep Alive"))
 o.default = "0"

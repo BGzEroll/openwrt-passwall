@@ -250,25 +250,20 @@ end
 function gen_config(var)
 	local flag = var["-flag"]
 	local node_id = var["-node"]
-	local server_host = var["-server_host"]
-	local server_port = var["-server_port"]
 	local tcp_redir_port = var["-tcp_redir_port"]
 	local udp_redir_port = var["-udp_redir_port"]
 	local local_socks_address = var["-local_socks_address"] or "0.0.0.0"
 	local local_socks_port = var["-local_socks_port"]
-	local local_socks_username = var["-local_socks_username"]
-	local local_socks_password = var["-local_socks_password"]
-	local local_http_address = var["-local_http_address"] or "0.0.0.0"
-	local local_http_port = var["-local_http_port"]
-	local local_http_username = var["-local_http_username"]
-	local local_http_password = var["-local_http_password"]
 	local dns_listen_port = var["-dns_listen_port"]
-	local remote_dns_tcp_server = var["-remote_dns_tcp_server"]
-	local remote_dns_tcp_port = var["-remote_dns_tcp_port"]
-	local remote_dns_doh_url = var["-remote_dns_doh_url"]
-	local remote_dns_doh_host = var["-remote_dns_doh_host"]
-	local remote_dns_doh_ip = var["-remote_dns_doh_ip"]
-	local remote_dns_doh_port = var["-remote_dns_doh_port"]
+	local endpoint = require 'luci.passwall.endpoint'
+	local remote_dns_tcp_server, remote_dns_tcp_port
+	if var['-remote_dns_tcp_server'] then
+		remote_dns_tcp_server, remote_dns_tcp_port = endpoint.parse(var['-remote_dns_tcp_server']:match('^[^,]+'))
+	end
+	local remote_dns_doh_url, remote_dns_doh_host, remote_dns_doh_port, remote_dns_doh_ip
+	if var['-remote_dns_doh'] then
+		remote_dns_doh_url, remote_dns_doh_host, remote_dns_doh_port, remote_dns_doh_ip = endpoint.doh(var['-remote_dns_doh'])
+	end
 	local dns_cache = var["-dns_cache"]
 	local dns_client_ip = var["-dns_client_ip"]
 	local dns_socks_address = var["-dns_socks_address"]
@@ -287,12 +282,6 @@ function gen_config(var)
 		local node = uci:get_all(appname, node_id)
 		local balancers = {}
 		local rules = {}
-		if node then
-			if server_host and server_port then
-				node.address = server_host
-				node.port = server_port
-			end
-		end
 		if local_socks_port then
 			local inbound = {
 				tag = "socks-in",
@@ -302,32 +291,6 @@ function gen_config(var)
 				settings = {auth = "noauth", udp = true},
 				sniffing = {enabled = true, destOverride = {"http", "tls", "quic"}}
 			}
-			if local_socks_username and local_socks_password and local_socks_username ~= "" and local_socks_password ~= "" then
-				inbound.settings.auth = "password"
-				inbound.settings.accounts = {
-					{
-						user = local_socks_username,
-						pass = local_socks_password
-					}
-				}
-			end
-			table.insert(inbounds, inbound)
-		end
-		if local_http_port then
-			local inbound = {
-				listen = local_http_address,
-				port = tonumber(local_http_port),
-				protocol = "http",
-				settings = {allowTransparent = false}
-			}
-			if local_http_username and local_http_password and local_http_username ~= "" and local_http_password ~= "" then
-				inbound.settings.accounts = {
-					{
-						user = local_http_username,
-						pass = local_http_password
-					}
-				}
-			end
 			table.insert(inbounds, inbound)
 		end
 
@@ -777,7 +740,7 @@ function gen_config(var)
 
 		local _remote_dns = {
 			--_flag = "remote",
-			address = "tcp://" .. remote_dns_tcp_server,
+			address = "tcp://" .. (remote_dns_tcp_server:find(":", 1, true) and "[" .. remote_dns_tcp_server .. "]" or remote_dns_tcp_server),
 			port = tonumber(remote_dns_tcp_port)
 		}
 
@@ -1002,6 +965,6 @@ _G.gen_config = gen_config
 if arg[1] then
 	local func =_G[arg[1]]
 	if func then
-		print(func(api.get_function_args(arg)))
+		print(func(api.get_args(arg, 2)))
 	end
 end

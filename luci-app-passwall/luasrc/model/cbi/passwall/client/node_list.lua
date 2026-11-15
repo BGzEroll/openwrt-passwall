@@ -1,4 +1,5 @@
 local api = require "luci.passwall.api"
+local node_refs = require "luci.passwall.node_refs"
 local appname = "passwall"
 
 m = Map(appname)
@@ -18,13 +19,18 @@ function s.create(e, t)
 end
 
 function s.remove(e, t)
-	TypedSection.remove(e, t)
-	local new_node = m.uci:get_first(appname, "nodes") or "nil"
-	if (m:get("@global[0]", "tcp_node") or "nil") == t then
-		m:set("@global[0]", "tcp_node", new_node)
+	local ok, err = node_refs.check_delete(m.uci, {t})
+	if not ok then
+		m.message = err
+		return
 	end
-	if (m:get("@global[0]", "udp_node") or "nil") == t then
-		m:set("@global[0]", "udp_node", new_node)
+
+	TypedSection.remove(e, t)
+	if m:get("@global[0]", "tcp_node") == t then
+		m:set("@global[0]", "tcp_node", "nil")
+	end
+	if m:get("@global[0]", "udp_node") == t then
+		m:set("@global[0]", "udp_node", "nil")
 	end
 end
 

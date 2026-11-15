@@ -1,7 +1,7 @@
 local api = require "luci.passwall.api"
 local appname = "passwall"
 local uci = api.uci
-local datatypes = api.datatypes
+local endpoint = require "luci.passwall.endpoint"
 local has_gfwlist = api.fs.access("/usr/share/passwall/rules/gfwlist")
 local has_chnroute = api.fs.access("/usr/share/passwall/rules/chnroute")
 
@@ -31,27 +31,16 @@ for k, v in pairs(nodes_table) do
 	end
 end
 
-local doh_validate = function(self, value, t)
-	if value ~= "" then
-		value = api.trim(value)
-		local flag = 0
-		local util = require "luci.util"
-		local val = util.split(value, ",")
-		local url = val[1]
-		val[1] = nil
-		for i = 1, #val do
-			local v = val[i]
-			if v then
-				if not datatypes.ipmask4(v) and not datatypes.ipmask6(v) then
-					flag = 1
-				end
-			end
-		end
-		if flag == 0 then
-			return value
-		end
-	end
-	return nil, translate("DoH request address") .. " " .. translate("Format must be:") .. " URL,IP"
+local function dns_validate(self, value)
+ local ok, host = pcall(endpoint.parse, value)
+ if ok and api.is_ip(host) then return value end
+ return nil, "请填写 IP 地址，可附端口；IPv6 端口使用 [地址]:端口。"
+end
+
+local function doh_validate(self, value)
+ local ok = pcall(endpoint.doh, value)
+ if ok then return value end
+ return nil, "请填写 HTTPS 地址，可在逗号后附引导 IP。"
 end
 
 m:append(Template(appname .. "/global/status"))
@@ -213,7 +202,7 @@ o:depends({dns_shunt = "dnsmasq"})
 o:depends({dns_shunt = "chinadns-ng"})
 
 o = s:taboption("DNS", Value, "direct_dns_udp", translate("直连 DNS"))
-o.datatype = "or(ipaddr,ipaddrport)"
+o.validate = dns_validate
 o.default = "223.5.5.5"
 o:value("223.5.5.5")
 o:value("223.6.6.6")
@@ -224,7 +213,7 @@ o:value("114.114.114.114")
 o:depends("direct_dns_mode", "udp")
 
 o = s:taboption("DNS", Value, "direct_dns_tcp", translate("直连 DNS"))
-o.datatype = "or(ipaddr,ipaddrport)"
+o.validate = dns_validate
 o.default = "223.5.5.5"
 o:value("223.5.5.5")
 o:value("223.6.6.6")
@@ -253,7 +242,7 @@ end
 
 ---- DNS Forward
 o = s:taboption("DNS", Value, "remote_dns", translate("远程 DNS"))
-o.datatype = "or(ipaddr,ipaddrport)"
+o.validate = dns_validate
 o.default = "1.1.1.1"
 o:value("1.1.1.1", "1.1.1.1 (CloudFlare)")
 o:value("1.1.1.2", "1.1.1.2 (CloudFlare-Security)")

@@ -92,11 +92,18 @@ end
 				button.textContent = allSelected ? "取消全选" : "全选";
 		}
 
-		function redirectAfterSuccess(xhr) {
+		function redirectAfterSuccess(xhr, data) {
 			if (xhr && xhr.status === 200)
 				window.location.assign(config.getAttribute("data-list-url"));
-			else
-				window.alert("操作失败");
+			else {
+				var message = data && data.message;
+				if (!message && xhr && xhr.responseText) {
+					try {
+						message = JSON.parse(xhr.responseText).message;
+					} catch (e) {}
+				}
+				window.alert(message || (xhr && xhr.statusText) || "操作失败");
+			}
 		}
 
 		function runTest(button) {

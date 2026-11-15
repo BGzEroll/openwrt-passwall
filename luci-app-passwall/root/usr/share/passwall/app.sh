@@ -8,13 +8,10 @@
 CONFIG=passwall
 STATE_PATH=/var/run/passwall
 TMP_PATH=${PASSWALL_TMP_PATH:-/tmp/etc/$CONFIG}
-TMP_BIN_PATH=$TMP_PATH/bin
 PROCESS_DIR=${PASSWALL_PROCESS_DIR:-$STATE_PATH/processes}
-TMP_ID_PATH=$TMP_PATH/id
 TMP_ROUTE_PATH=$TMP_PATH/route
 TMP_ACL_PATH=$TMP_PATH/acl
 TMP_IFACE_PATH=$TMP_PATH/iface
-TMP_PATH2=/tmp/etc/${CONFIG}_tmp
 DNSMASQ_PATH=/etc/dnsmasq.d
 TMP_DNSMASQ_PATH=/tmp/dnsmasq.d/passwall
 LOG_FILE=/tmp/log/$CONFIG.log
@@ -99,76 +96,15 @@ get_host_ip() {
 	echo $ip
 }
 
-get_ip_port_from() {
-	local __host=${1}; shift 1
-	local __ipv=${1}; shift 1
-	local __portv=${1}; shift 1
-	local __ucipriority=${1}; shift 1
-
-	local val1 val2
-	if [ -n "${__ucipriority}" ]; then
-		val2=$(config_n_get ${__host} port $(echo $__host | sed -n 's/^.*[:#]\([0-9]*\)$/\1/p'))
-		val1=$(config_n_get ${__host} address "${__host%%${val2:+[:#]${val2}*}}")
-	else
-		val2=$(echo $__host | sed -n 's/^.*[:#]\([0-9]*\)$/\1/p')
-		val1="${__host%%${val2:+[:#]${val2}*}}"
-	fi
-	eval "${__ipv}=\"$val1\"; ${__portv}=\"$val2\""
+dns_endpoints() {
+ lua - "$1" <<'LUA'
+local endpoint = require 'luci.passwall.endpoint'
+print(endpoint.list(arg[1]))
+LUA
 }
 
-host_from_url(){
-	local f=${1}
-
-	## Remove protocol part of url  ##
-	f="${f##http://}"
-	f="${f##https://}"
-	f="${f##ftp://}"
-	f="${f##sftp://}"
-
-	## Remove username and/or username:password part of URL  ##
-	f="${f##*:*@}"
-	f="${f##*@}"
-
-	## Remove rest of urls ##
-	f="${f%%/*}"
-	echo "${f%%:*}"
-}
-
-hosts_foreach() {
-	local __hosts
-	eval "__hosts=\$${1}"; shift 1
-	local __func=${1}; shift 1
-	local __default_port=${1}; shift 1
-	local __ret=1
-
-	[ -z "${__hosts}" ] && return 0
-	local __ip __port
-	for __host in $(echo $__hosts | sed 's/[ ,]/\n/g'); do
-		get_ip_port_from "$__host" "__ip" "__port"
-		eval "$__func \"${__host}\" \"\${__ip}\" \"\${__port:-${__default_port}}\" \"$@\""
-		__ret=$?
-		[ ${__ret} -ge ${ERROR_NO_CATCH:-1} ] && return ${__ret}
-	done
-}
-
-check_host() {
-	local f=${1}
-	a=$(echo $f | grep "\/")
-	[ -n "$a" ] && return 1
-	# 判断是否包含汉字~
-	local tmp=$(echo -n $f | awk '{print gensub(/[!-~]/,"","g",$0)}')
-	[ -n "$tmp" ] && return 1
-	return 0
-}
-
-get_first_dns() {
-	local __hosts_val=${1}; shift 1
-	__first() {
-		[ -z "${2}" ] && return 0
-		echo "${2}#${3}"
-		return 1
-	}
-	eval "hosts_foreach \"${__hosts_val}\" __first \"$@\""
+first_dns() {
+ printf '%s\n' "${1%%,*}"
 }
 
 check_port_exists() {
@@ -240,61 +176,22 @@ ln_run() {
 	fi
 }
 
-lua_api() {
-	lua - "$1" "$2" <<'LUA'
-local api = require 'luci.passwall.api'
-print(api[arg[1]](arg[2]))
-LUA
-}
-
 run_xray() {
-	local flag node tcp_redir_port udp_redir_port socks_address socks_port socks_username socks_password http_address http_port http_username http_password
-	local dns_listen_port remote_dns_udp_server remote_dns_tcp_server remote_dns_doh dns_client_ip dns_cache dns_socks_address dns_socks_port
-	local loglevel log_file config_file server_host server_port
-	local _extra_param=""
-	set_vars "$@"
-	[ -n "$log_file" ] || local log_file="/dev/null"
-	[ -z "$loglevel" ] && local loglevel=$(config_t_get global loglevel "warning")
-	[ -n "$flag" ] && _extra_param="${_extra_param} -flag $flag"
-	[ -n "$node" ] && _extra_param="${_extra_param} -node $node"
-	[ -n "$server_host" ] && _extra_param="${_extra_param} -server_host $server_host"
-	[ -n "$server_port" ] && _extra_param="${_extra_param} -server_port $server_port"
-	[ -n "$tcp_redir_port" ] && _extra_param="${_extra_param} -tcp_redir_port $tcp_redir_port"
-	[ -n "$udp_redir_port" ] && _extra_param="${_extra_param} -udp_redir_port $udp_redir_port"
-	[ -n "$socks_address" ] && _extra_param="${_extra_param} -local_socks_address $socks_address"
-	[ -n "$socks_port" ] && _extra_param="${_extra_param} -local_socks_port $socks_port"
-	[ -n "$socks_username" ] && [ -n "$socks_password" ] && _extra_param="${_extra_param} -local_socks_username $socks_username -local_socks_password $socks_password"
-	[ -n "$http_address" ] && _extra_param="${_extra_param} -local_http_address $http_address"
-	[ -n "$http_port" ] && _extra_param="${_extra_param} -local_http_port $http_port"
-	[ -n "$http_username" ] && [ -n "$http_password" ] && _extra_param="${_extra_param} -local_http_username $http_username -local_http_password $http_password"
-	[ -n "$dns_socks_address" ] && [ -n "$dns_socks_port" ] && _extra_param="${_extra_param} -dns_socks_address ${dns_socks_address} -dns_socks_port ${dns_socks_port}"
-	[ -n "$dns_listen_port" ] && _extra_param="${_extra_param} -dns_listen_port ${dns_listen_port}"
-	[ -n "$dns_client_ip" ] && _extra_param="${_extra_param} -dns_client_ip ${dns_client_ip}"
-	[ -n "$dns_cache" ] && _extra_param="${_extra_param} -dns_cache ${dns_cache}"
-	[ -n "${remote_dns_tcp_server}" ] && {
-		local _dns=$(get_first_dns remote_dns_tcp_server 53 | sed 's/#/:/g')
-		local _dns_address=$(echo ${_dns} | awk -F ':' '{print $1}')
-		local _dns_port=$(echo ${_dns} | awk -F ':' '{print $2}')
-		_extra_param="${_extra_param} -remote_dns_tcp_server ${_dns_address} -remote_dns_tcp_port ${_dns_port}"
-	}
-	[ -n "${remote_dns_doh}" ] && {
-		local _doh_url=$(echo $remote_dns_doh | awk -F ',' '{print $1}')
-		local _doh_host_port=$(lua_api get_domain_from_url "${_doh_url}")
-		#local _doh_host_port=$(echo $_doh_url | sed "s/https:\/\///g" | awk -F '/' '{print $1}')
-		local _doh_host=$(echo $_doh_host_port | awk -F ':' '{print $1}')
-		local is_ip=$(lua_api is_ip "${_doh_host}")
-		local _doh_port=$(echo $_doh_host_port | awk -F ':' '{print $2}')
-		[ -z "${_doh_port}" ] && _doh_port=443
-		local _doh_bootstrap=$(echo $remote_dns_doh | cut -d ',' -sf 2-)
-		[ "${is_ip}" = "true" ] && _doh_bootstrap=${_doh_host}
-		[ -n "$_doh_bootstrap" ] && _extra_param="${_extra_param} -remote_dns_doh_ip ${_doh_bootstrap}"
-		_extra_param="${_extra_param} -remote_dns_doh_port ${_doh_port} -remote_dns_doh_url ${_doh_url} -remote_dns_doh_host ${_doh_host}"
-	}
-	_extra_param="${_extra_param} -loglevel $loglevel"
-	lua "$UTIL_XRAY" gen_config ${_extra_param} > "$config_file" || {
-		APP_LAUNCH_FAILED=1
-		touch "$PROCESS_DIR/error"
-		return 1
+	local flag node tcp_redir_port udp_redir_port socks_address socks_port
+	local dns_listen_port remote_dns_tcp_server remote_dns_doh dns_client_ip dns_cache dns_socks_address dns_socks_port
+	local loglevel log_file config_file
+	set_vars "$@" || return 1
+	[ -n "$log_file" ] || log_file=/dev/null
+	[ -n "$loglevel" ] || loglevel=$(config_t_get global loglevel warning)
+	set -- -flag "$flag" -node "$node" -tcp_redir_port "$tcp_redir_port" -udp_redir_port "$udp_redir_port" \
+	 -local_socks_address "$socks_address" -local_socks_port "$socks_port" \
+	 -dns_listen_port "$dns_listen_port" -dns_client_ip "$dns_client_ip" -dns_cache "$dns_cache" \
+	 -dns_socks_address "$dns_socks_address" -dns_socks_port "$dns_socks_port" \
+	 -remote_dns_tcp_server "$remote_dns_tcp_server" -remote_dns_doh "$remote_dns_doh" -loglevel "$loglevel"
+	lua "$UTIL_XRAY" gen_config "$@" > "$config_file" || {
+	 APP_LAUNCH_FAILED=1
+	 touch "$PROCESS_DIR/error"
+	 return 1
 	}
 	ln_run /usr/bin/xray xray "$log_file" run -c "$config_file"
 }
@@ -318,8 +215,7 @@ run_chinadns_ng() {
 
 	# This function may be called multiple times, so add a condition here to avoid repeated execution.
 	[ ! -f "${TMP_PATH}/vpslist" ] && {
-		servers=$(node_addresses | grep -v -Fx "engage.cloudflareclient.com")
-		hosts_foreach "servers" host_from_url | grep '[a-zA-Z]$' | sort -u > "${TMP_PATH}/vpslist"
+		node_addresses | grep -v -Fx "engage.cloudflareclient.com" | grep '[a-zA-Z]$' | sort -u > "${TMP_PATH}/vpslist"
 	}
 	[ -s "${TMP_PATH}/vpslist" ] && {
 		local vpslist4_set="inet@passwall@passwall_vpslist"
@@ -382,13 +278,13 @@ run_chinadns_ng() {
 }
 
 run_socks() {
-	local flag node bind socks_port config_file http_port log_file
+	local flag node bind socks_port config_file log_file
 	set_vars "$@" || return 1
 	[ "$(config_n_get "$node" type)" = Xray ] || { echolog 核心 "节点 $node 不是 Xray 节点"; return 1; }
 	case "$config_file" in "$TMP_PATH"/*) ;; *) config_file="$TMP_PATH/$config_file" ;; esac
 	case "$log_file" in "$TMP_PATH"/*) ;; '') log_file=/dev/null ;; *) log_file="$TMP_PATH/$log_file" ;; esac
 	run_xray "flag=$flag" "node=$node" "socks_address=${bind:-127.0.0.1}" \
-		"socks_port=$socks_port" "http_address=${bind:-127.0.0.1}" "http_port=$http_port" \
+		"socks_port=$socks_port" \
 		"config_file=$config_file" "log_file=$log_file"
 }
 
@@ -409,14 +305,14 @@ run_redir() {
 	fi
 
 	tcp_node_socks_port=$(config_t_get global tcp_node_socks_port 1070)
-	local socks_bind=127.0.0.1 args=""
+	local socks_bind=127.0.0.1 flag=TCP
 	[ "$(config_t_get global tcp_node_socks_bind_local 1)" = 1 ] || socks_bind=0.0.0.0
-	local flag=TCP
+	set --
 	if [ "$TCP_UDP" = 1 ]; then
 		UDP_REDIR_PORT=$local_port
 		UDP_NODE=nil
 		flag=TCP_UDP
-		args="udp_redir_port=$local_port"
+		set -- "udp_redir_port=$local_port"
 	fi
 	local protocol=$(config_n_get "$node" protocol)
 	local default_node=$(config_n_get "$node" default_node)
@@ -431,16 +327,15 @@ run_redir() {
 		resolve_dns=1
 		resolve_dns_port=$dns_listen_port
 		dns_listen_port=$((dns_listen_port + 1))
-		args="$args dns_listen_port=$resolve_dns_port dns_cache=0 remote_dns_tcp_server=$REMOTE_DNS"
-		local client_ip=$(config_t_get global dns_client_ip)
-		[ -z "$client_ip" ] || args="$args dns_client_ip=$client_ip"
+		set -- "$@" "dns_listen_port=$resolve_dns_port" dns_cache=0 "remote_dns_tcp_server=$REMOTE_DNS" \
+			"dns_client_ip=$(config_t_get global dns_client_ip)"
 		if [ "$v2ray_dns_mode" = tcp+doh ]; then
-			args="$args remote_dns_doh=$(config_t_get global remote_dns_doh https://1.1.1.1/dns-query)"
+			set -- "$@" "remote_dns_doh=$(config_t_get global remote_dns_doh https://1.1.1.1/dns-query)"
 		fi
 	fi
 	run_xray "flag=$flag" "node=$node" "tcp_redir_port=$local_port" \
 		"socks_address=$socks_bind" "socks_port=$tcp_node_socks_port" \
-		"config_file=$config_file" "log_file=$log_file" $args || return 1
+		"config_file=$config_file" "log_file=$log_file" "$@" || return 1
 	printf '%s\n' "127.0.0.1:$tcp_node_socks_port" > "$TMP_ACL_PATH/default/TCP_SOCKS_server"
 }
 
@@ -490,24 +385,28 @@ app_crontab() {
 }
 
 start_dns() {
+	REMOTE_DNS=$(dns_endpoints "$REMOTE_DNS") || return 1
+	LOCAL_DNS=$(dns_endpoints "$LOCAL_DNS") || return 1
+	IPT_APPEND_DNS="$LOCAL_DNS"
 	debuglog DNS "生成 DNS 配置"
 
 	local china_ng_local_dns=$(IFS=','; set -- $LOCAL_DNS; [ "${1%%[#:]*}" = "127.0.0.1" ] && echo "$1" || ([ -n "$2" ] && echo "$1,$2" || echo "$1"))
 	local direct_dns_mode=$(config_t_get global direct_dns_mode "auto")
 	case "$direct_dns_mode" in
 		udp)
-			LOCAL_DNS=$(config_t_get global direct_dns_udp 223.5.5.5 | sed 's/:/#/g')
+			LOCAL_DNS=$(dns_endpoints "$(config_t_get global direct_dns_udp 223.5.5.5)") || return 1
 			china_ng_local_dns=${LOCAL_DNS}
 			IPT_APPEND_DNS=${LOCAL_DNS}
 		;;
 		tcp)
 			LOCAL_DNS="127.0.0.1#${dns_listen_port}"
 			dns_listen_port=$(expr $dns_listen_port + 1)
-			local DIRECT_DNS=$(config_t_get global direct_dns_tcp 223.5.5.5 | sed 's/:/#/g')
+			local DIRECT_DNS
+			DIRECT_DNS=$(dns_endpoints "$(config_t_get global direct_dns_tcp 223.5.5.5)") || return 1
 			china_ng_local_dns="tcp://${DIRECT_DNS}"
 			IPT_APPEND_DNS="${LOCAL_DNS},${DIRECT_DNS}"
-			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(get_first_dns DIRECT_DNS 53)" -v
-			debuglog DNS "dns2tcp(${LOCAL_DNS}) -> tcp://$(get_first_dns DIRECT_DNS 53 | sed 's/#/:/g')"
+			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(first_dns "$DIRECT_DNS")" -v
+			debuglog DNS "dns2tcp(${LOCAL_DNS}) -> tcp://$(first_dns "$DIRECT_DNS")"
 		;;
 		auto)
 			#Automatic logic is already done by default
@@ -523,40 +422,34 @@ start_dns() {
 		[ "${resolve_dns}" == "0" ] && {
 			local config_file=$TMP_PATH/DNS.json
 			local log_file=/dev/null
-			local _args="config_file=$config_file log_file=$log_file"
-			[ "${DNS_CACHE}" == "0" ] && _args="${_args} dns_cache=0"
-			local _dns_client_ip=$(config_t_get global dns_client_ip)
-			[ -n "${_dns_client_ip}" ] && _args="${_args} dns_client_ip=${_dns_client_ip}"
-			_args="${_args} dns_listen_port=${dns_listen_port}"
-			_args="${_args} remote_dns_tcp_server=${REMOTE_DNS}"
-			local v2ray_dns_mode=$(config_t_get global v2ray_dns_mode tcp)
-			if [ "$v2ray_dns_mode" = "tcp+doh" ]; then
-				remote_dns_doh=$(config_t_get global remote_dns_doh "https://1.1.1.1/dns-query")
-				_args="${_args} remote_dns_doh=${remote_dns_doh}"
-				debuglog DNS "Xray DNS(${TUN_DNS}) -> (${remote_dns_doh})(A/AAAA) + tcp://${REMOTE_DNS}"
-			else
-				debuglog DNS "Xray DNS(${TUN_DNS}) -> tcp://${REMOTE_DNS}"
+			local remote_dns_doh=""
+			if [ "$(config_t_get global v2ray_dns_mode tcp)" = tcp+doh ]; then
+				remote_dns_doh=$(config_t_get global remote_dns_doh https://1.1.1.1/dns-query)
 			fi
-			_args="${_args} dns_socks_address=127.0.0.1 dns_socks_port=${tcp_node_socks_port}"
-			run_xray ${_args}
+			run_xray "config_file=$config_file" "log_file=$log_file" dns_cache=0 \
+				"dns_listen_port=$dns_listen_port" "dns_client_ip=$(config_t_get global dns_client_ip)" \
+				"remote_dns_tcp_server=$REMOTE_DNS" "remote_dns_doh=$remote_dns_doh" \
+				dns_socks_address=127.0.0.1 "dns_socks_port=$tcp_node_socks_port" || return 1
+			debuglog DNS "Xray DNS(${TUN_DNS})：TCP ${REMOTE_DNS}${remote_dns_doh:+，DoH ${remote_dns_doh}}"
+
 		}
 	;;
 	udp)
 		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ]; then
 			local china_ng_listen_port=${dns_listen_port}
-			local china_ng_trust_dns="udp://$(get_first_dns REMOTE_DNS 53 | sed 's/:/#/g')"
+			local china_ng_trust_dns="udp://$(first_dns "$REMOTE_DNS")"
 		else
-			TUN_DNS="$(echo ${REMOTE_DNS} | sed 's/#/:/g' | sed -E 's/\:([^:]+)$/#\1/g')"
+			TUN_DNS="$(first_dns "$REMOTE_DNS")"
 			debuglog DNS "udp://${TUN_DNS}"
 		fi
 	;;
 	*)
 		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ]; then
 			local china_ng_listen_port=${dns_listen_port}
-			local china_ng_trust_dns="tcp://$(get_first_dns REMOTE_DNS 53 | sed 's/:/#/g')"
+			local china_ng_trust_dns="tcp://$(first_dns "$REMOTE_DNS")"
 		else
-			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(get_first_dns REMOTE_DNS 53)" -v
-			debuglog DNS "dns2tcp(${TUN_DNS}) -> tcp://$(get_first_dns REMOTE_DNS 53 | sed 's/#/:/g')"
+			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(first_dns "$REMOTE_DNS")" -v
+			debuglog DNS "dns2tcp(${TUN_DNS}) -> tcp://$(first_dns "$REMOTE_DNS")"
 		fi
 	;;
 	esac
@@ -713,12 +606,13 @@ app_core_signature() {
 }
 
 app_check() {
+	app_core_signature >/dev/null || return 1
 	APP_LAUNCH_FAILED=0
 	mkdir -p "$TMP_ACL_PATH/default" "$PROCESS_DIR"
 	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
-		start_redir TCP
-		start_redir UDP
-		start_dns
+		start_redir TCP || APP_LAUNCH_FAILED=1
+		start_redir UDP || APP_LAUNCH_FAILED=1
+		start_dns || APP_LAUNCH_FAILED=1
 	fi
 	[ "$APP_LAUNCH_FAILED" = 0 ] && [ ! -e "$PROCESS_DIR/error" ] &&
 		lua "$APP_PATH/process.lua" validate "$PROCESS_DIR" || return 1
@@ -749,7 +643,9 @@ app_restart() {
 
 app_runtime_save() {
 	local key
-	mkdir -p "$STATE_PATH/runtime"
+	mkdir -p "$STATE_PATH/runtime/config" && chmod 700 "$STATE_PATH/runtime/config" || return 1
+	cp "$CONFIG_INPUT/passwall" "$STATE_PATH/runtime/config/passwall.next" &&
+		mv "$STATE_PATH/runtime/config/passwall.next" "$STATE_PATH/runtime/config/passwall" || return 1
 	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS USE_DEFAULT_DNS CHINADNS_DNS; do
 		eval 'printf "%s\n" "${'"$key"':-}"' > "$STATE_PATH/runtime/$key"
 	done
@@ -857,7 +753,7 @@ app_apply() {
 }
 
 app_reload() {
-	local reason="${1:-config}" work old_local_dns="$LOCAL_DNS" old_default_dns="$DEFAULT_DNS" old_append_dns="$IPT_APPEND_DNS"
+	local reason="${1:-config}" work old_local_dns="$LOCAL_DNS" old_default_dns="$DEFAULT_DNS"
 	if [ "$reason" = config ]; then
 		[ "$ENABLED" = 1 ] || { app_stop; return $?; }
 		[ -f "$STATE_PATH/running" ] || { app_start; return $?; }
@@ -869,7 +765,8 @@ app_reload() {
 	[ -f "$STATE_PATH/running" ] || return 0
 	app_runtime_load
 	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
-		LOCAL_DNS="$old_local_dns"; DEFAULT_DNS="$old_default_dns"; IPT_APPEND_DNS="$old_append_dns"
+		LOCAL_DNS=$(dns_endpoints "$old_local_dns") || return 1
+		DEFAULT_DNS="$old_default_dns"; IPT_APPEND_DNS="$LOCAL_DNS"
 	fi
 	nft_read_config || return 1
 	work=$(mktemp -d "$STATE_PATH/reload.XXXXXX") || return 1
@@ -887,10 +784,12 @@ app_reload() {
 		rm -rf "$work"
 		return 1
 	fi
-	app_runtime_save
-	app_crontab 1 || return 1
+	if ! app_runtime_save || ! app_crontab 1; then
+		rm -rf "$work"
+		return 1
+	fi
 	rm -rf "$work"
-	rm -f "$STATE_PATH/last_error"
+	[ "$reason" != config ] || rm -f "$STATE_PATH/last_error"
 	case "$reason" in config) reason=配置 ;; rules) reason=规则 ;; network) reason=网络 ;; firewall) reason=防火墙 ;; esac
 	echolog 服务 "热更新完成：$reason"
 }
@@ -936,7 +835,7 @@ app_start() {
 		echolog 服务 "需要 firewall4、nftables 和支持 nftset 的 dnsmasq，未启动"
 		return 1
 	fi
-	mkdir -p "$TMP_PATH" "$TMP_BIN_PATH" "$PROCESS_DIR" "$TMP_ID_PATH" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_IFACE_PATH" "$TMP_PATH2"
+	mkdir -p "$TMP_PATH" "$PROCESS_DIR" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_IFACE_PATH"
 	rm -rf "$PROCESS_DIR"
 	mkdir -p "$PROCESS_DIR"
 	APP_LAUNCH_FAILED=0
@@ -944,9 +843,9 @@ app_start() {
 	work=$(mktemp -d "$STATE_PATH/start.XXXXXX") || return 1
 	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
 		mkdir -p "$TMP_ACL_PATH/default"
-		start_redir TCP
-		start_redir UDP
-		start_dns
+		start_redir TCP || APP_LAUNCH_FAILED=1
+		start_redir UDP || APP_LAUNCH_FAILED=1
+		start_dns || APP_LAUNCH_FAILED=1
 	fi
 	if [ "$APP_LAUNCH_FAILED" = 1 ] || [ -e "$PROCESS_DIR/error" ]; then
 		app_processes_stop
@@ -973,8 +872,11 @@ app_start() {
 		rm -rf "$work"
 		return 1
 	fi
-	app_runtime_save
-	app_core_signature > "$STATE_PATH/core.sha256"
+	if ! app_runtime_save || ! app_core_signature > "$STATE_PATH/core.sha256"; then
+		app_stop
+		rm -rf "$work"
+		return 1
+	fi
 	nft_include
 	if ! app_crontab 1; then
 		app_stop
@@ -1006,7 +908,7 @@ app_stop() {
 		/etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1 || failed=1
 	fi
 	if [ "$failed" = 0 ]; then
-		rm -rf "$TMP_PATH" "$TMP_PATH2" "$STATE_PATH/runtime" "$PROCESS_DIR"
+		rm -rf "$TMP_PATH" "$STATE_PATH/runtime" "$PROCESS_DIR"
 		rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*
 		echolog 服务 "已停止"
 	else
@@ -1015,7 +917,22 @@ app_stop() {
 	return "$failed"
 }
 
-config_load "$CONFIG"
+mkdir -p "$STATE_PATH"
+CONFIG_INPUT=$(mktemp -d "$STATE_PATH/config.XXXXXX") || exit 1
+trap 'rm -rf "$CONFIG_INPUT"' EXIT
+case "$1:$2" in
+ reload:network|reload:firewall|reload:rules|update_rules:*)
+  [ ! -f "$STATE_PATH/running" ] || cp "$STATE_PATH/runtime/config/passwall" "$CONFIG_INPUT/passwall" || exit 1
+ ;;
+esac
+if [ ! -f "$CONFIG_INPUT/passwall" ]; then
+ uci -q -S export "$CONFIG" > "$CONFIG_INPUT/passwall" || exit 1
+fi
+export PASSWALL_CONFIG_DIR="$CONFIG_INPUT"
+# Native shell config callbacks, with an isolated delta directory for the snapshot.
+config_data=$(/sbin/uci -c "$CONFIG_INPUT" -t "$CONFIG_INPUT" -S -n export "$CONFIG") || exit 1
+eval "$config_data"
+unset config_data
 
 ENABLED=$(config_t_get global enabled 0)
 TCP_REDIR_PORT=1041
@@ -1051,8 +968,7 @@ LOCALHOST_PROXY=$(config_t_get global localhost_proxy 0)
 DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
 [ -z "$(binary_path $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
 DNS_MODE=$(config_t_get global dns_mode tcp)
-DNS_CACHE=0
-REMOTE_DNS=$(config_t_get global remote_dns 1.1.1.1:53 | sed 's/#/:/g' | sed -E 's/\:([^:]+)$/#\1/g')
+REMOTE_DNS=$(config_t_get global remote_dns 1.1.1.1:53)
 USE_DEFAULT_DNS=$(config_t_get global use_default_dns direct)
 dns_listen_port=${DNS_PORT}
 
@@ -1071,7 +987,7 @@ IPT_APPEND_DNS=${LOCAL_DNS}
 export PASSWALL_TMP_PATH="$TMP_PATH" PASSWALL_PROCESS_DIR="$PROCESS_DIR"
 export V2RAY_LOCATION_ASSET=/usr/share/v2ray/
 export XRAY_LOCATION_ASSET=$V2RAY_LOCATION_ASSET
-mkdir -p "$STATE_PATH" /tmp/etc $TMP_PATH $TMP_BIN_PATH $PROCESS_DIR $TMP_ID_PATH $TMP_ROUTE_PATH $TMP_ACL_PATH $TMP_IFACE_PATH $TMP_PATH2
+mkdir -p "$STATE_PATH" /tmp/etc $TMP_PATH $PROCESS_DIR $TMP_ROUTE_PATH $TMP_ACL_PATH $TMP_IFACE_PATH
 
 # nftables.sh is a library, never a second command dispatcher.
 . "$APP_PATH/nftables.sh"

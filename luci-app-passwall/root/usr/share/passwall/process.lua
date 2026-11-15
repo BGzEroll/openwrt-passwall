@@ -94,7 +94,7 @@ local function ports_ready(instance)
 end
 
 local function status()
- local uci = require 'luci.model.uci'.cursor()
+ local uci = require 'uci'.cursor(root .. '/runtime/config', root .. '/runtime/config')
  local function runtime(key)
   return (fs.readfile(root .. '/runtime/' .. key) or ''):gsub('%s+$', '')
  end

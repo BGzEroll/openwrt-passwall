@@ -1,9 +1,9 @@
 module("luci.passwall.api", package.seeall)
-local com = require "luci.passwall.com"
 bin = require "nixio".bin
 fs = require "nixio.fs"
 sys = require "luci.sys"
-uci = require"luci.model.uci".cursor()
+local config_dir = os.getenv("PASSWALL_CONFIG_DIR")
+uci = config_dir and require("uci").cursor(config_dir, config_dir) or require("luci.model.uci").cursor()
 util = require "luci.util"
 datatypes = require "luci.cbi.datatypes"
 jsonc = require "luci.jsonc"
@@ -25,7 +25,7 @@ end
 
 local debug_logging
 function log_debug(component, ...)
-	if debug_logging == nil then debug_logging = uci:get_first(appname, "global", "log_debug", "0") == "1" end
+	if debug_logging == nil then debug_logging = uci:get(appname, "@global[0]", "log_debug") == "1" end
 	if debug_logging then log(component, ...) end
 end
 
@@ -94,19 +94,19 @@ end
 function curl_base(url, file, args)
 	if not args then args = {} end
 	if file then
-		args[#args + 1] = "-o " .. file
+		args[#args + 1] = "-o " .. util.shellquote(file)
 	end
-	local cmd = string.format('curl %s -- %s', table_join(args), util.shellquote(url))
+	local cmd = string.format('curl %s -- %s', table.concat(args, " "), util.shellquote(url))
 	return exec_call(cmd)
 end
 
 function curl_proxy(url, file, args)
 	--使用代理
-	local socks_server = luci.sys.exec("[ -f /tmp/etc/passwall/acl/default/TCP_SOCKS_server ] && echo -n $(cat /tmp/etc/passwall/acl/default/TCP_SOCKS_server) || echo -n ''")
+	local socks_server = (fs.readfile("/tmp/etc/passwall/acl/default/TCP_SOCKS_server") or ""):gsub("%s+$", "")
 	if socks_server ~= "" then
 		if not args then args = {} end
 		local tmp_args = clone(args)
-		tmp_args[#tmp_args + 1] = "-x socks5h://" .. socks_server
+		tmp_args[#tmp_args + 1] = "-x " .. util.shellquote("socks5h://" .. socks_server)
 		return curl_base(url, file, tmp_args)
 	end
 	return nil, nil
@@ -136,66 +136,15 @@ function trim(s)
 end
 
 -- 分割字符串
-function split(full, sep)
-	if full then
-		full = full:gsub("%z", "") -- 这里不是很清楚 有时候结尾带个\0
-		local off, result = 1, {}
-		while true do
-			local nStart, nEnd = full:find(sep, off)
-			if not nEnd then
-				local res = string.sub(full, off, string.len(full))
-				if #res > 0 then -- 过滤掉 \0
-					table.insert(result, res)
-				end
-				break
-			else
-				table.insert(result, string.sub(full, off, nStart - 1))
-				off = nEnd + 1
-			end
-		end
-		return result
-	end
-	return {}
-end
-
-function repeat_exist(table, value)
-	local count = 0
-	for index, k in ipairs(table) do
-		if k:find("-") and k == value then
-			count = count + 1
-		end
-	end
-	if count > 1 then
-		return true
-	end
-	return false
-end
-
-function get_args(arg)
-	local var = {}
-	for i, arg_k in pairs(arg) do
-		if i > 0 then
-			local v = arg[i + 1]
-			if v then
-				if repeat_exist(arg, v) == false then
-					var[arg_k] = v
-				end
-			end
-		end
-	end
-	return var
-end
-
-function get_function_args(arg)
-	local var = nil
-	if arg and #arg > 1 then
-		local param = {}
-		for i = 2, #arg do
-			param[#param + 1] = arg[i]
-		end
-		var = get_args(param)
-	end
-	return var
+-- Internal generators accept explicit key/value pairs, preserving whitespace.
+function get_args(args, first)
+ local values = {}
+ for i = first or 1, #args, 2 do
+  local key, value = args[i], args[i + 1]
+  assert(key:match('^%-[%w_]+$') and value ~= nil, '无效生成参数：' .. tostring(key))
+  if value ~= '' then values[key] = value end
+ end
+ return values
 end
 
 function is_normal_node(e)
@@ -233,25 +182,6 @@ function get_ipv6_only(val)
 		end
 	end
 	return result
-end
-
-function get_ipv6_full(val)
-	local result = ""
-	if is_ipv6(val) then
-		result = val
-		if not val:match('%[(.*)%]') then
-			result = "[" .. result .. "]"
-		end
-	end
-	return result
-end
-
-function get_domain_from_url(url)
-	local domain = string.match(url, "//([^/]+)")
-	if domain then
-		return domain
-	end
-	return url
 end
 
 function get_valid_nodes()
@@ -302,29 +232,6 @@ function gen_short_uuid()
 	return sys.exec("echo -n $(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)")
 end
 
-local function chmod_755(file)
-	if file and file ~= "" then
-		if not fs.access(file, "rwx", "rx", "rx") then
-			fs.chmod(file, 755)
-		end
-	end
-end
-
-function finded_com(e)
-	local bin = get_app_path(e)
-	if bin and fs.access(bin, "x") then
-		return bin
-	end
-end
-
-function finded(e)
-	return luci.sys.exec('echo -n $(type -t -p "/bin/%s" -p "/usr/bin/%s" "%s" | head -n1)' % {e, e, e})
-end
-
-function is_finded(e)
-	return finded(e) ~= "" and true or false
-end
-
 function clone(org)
 	local function copy(org, res)
 		for k,v in pairs(org) do
@@ -340,72 +247,6 @@ function clone(org)
 	local res = {}
 	copy(org, res)
 	return res
-end
-
-local function get_bin_version_cache(file, cmd)
-	sys.call("mkdir -p /tmp/etc/passwall_tmp")
-	if fs.access(file) then
-		chmod_755(file)
-		local md5 = sys.exec("echo -n $(md5sum " .. file .. " | awk '{print $1}')")
-		if fs.access("/tmp/etc/passwall_tmp/" .. md5) then
-			return sys.exec("echo -n $(cat /tmp/etc/passwall_tmp/%s)" % md5)
-		else
-			local version = sys.exec(string.format("echo -n $(%s %s)", file, cmd))
-			if version and version ~= "" then
-				sys.call("echo '" .. version .. "' > " .. "/tmp/etc/passwall_tmp/" .. md5)
-				return version
-			end
-		end
-	end
-	return ""
-end
-
-function get_app_path(app_name)
-	local app = com[app_name]
-	return app and app.path
-end
-
-function get_app_version(app_name)
-	local app = com[app_name]
-	if not app then return "" end
-	return get_bin_version_cache(app.path, app.cmd_version)
-end
-
-function table_join(t, s)
-	if not s then
-		s = " "
-	end
-	local str = ""
-	for index, value in ipairs(t) do
-		str = str .. t[index] .. (index == #t and "" or s)
-	end
-	return str
-end
-
-function compare_versions(ver1, comp, ver2)
-	local table = table
-
-	if not ver1 then ver1 = "" end
-	if not ver2 then ver2 = "" end
-
-	local av1 = util.split(ver1, "[%.%-]", nil, true)
-	local av2 = util.split(ver2, "[%.%-]", nil, true)
-
-	local max = table.getn(av1)
-	local n2 = table.getn(av2)
-	if (max < n2) then max = n2 end
-
-	for i = 1, max, 1 do
-		local s1 = tonumber(av1[i] or 0) or 0
-		local s2 = tonumber(av2[i] or 0) or 0
-
-		if comp == "~=" and (s1 ~= s2) then return true end
-		if (comp == "<" or comp == "<=") and (s1 < s2) then return true end
-		if (comp == ">" or comp == ">=") and (s1 > s2) then return true end
-		if (s1 ~= s2) then return false end
-	end
-
-	return not (comp == "<" or comp == ">")
 end
 
 -- Xray form fields use a prefix only to group protocol-specific controls.

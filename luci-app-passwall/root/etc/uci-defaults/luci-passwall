@@ -1,68 +1,25 @@
 #!/bin/sh
 
-uci -q batch <<-EOF >/dev/null
-	set dhcp.@dnsmasq[0].localuse=1
-	commit dhcp
-	[ -e "/etc/config/ucitrack" ] && {
-	delete ucitrack.@passwall[-1]
-	add ucitrack passwall
-	set ucitrack.@passwall[-1].init=passwall
-	commit ucitrack
-	}
-	delete firewall.passwall
-	set firewall.passwall=include
-	set firewall.passwall.type=script
-	set firewall.passwall.path=/var/etc/passwall.include
-	commit firewall
-	set uhttpd.main.max_requests=50
-	commit uhttpd
+if [ ! -s /etc/config/passwall ]; then
+	[ -s /usr/share/passwall/0_default_config ] || exit 1
+	cp /usr/share/passwall/0_default_config /etc/config/passwall || exit 1
+fi
+
+if ! uci -q get 'ucitrack.@passwall[0]' >/dev/null 2>&1; then
+	uci -q add ucitrack passwall >/dev/null || exit 1
+fi
+
+uci -q batch <<'EOF' || exit 1
+set ucitrack.@passwall[0].init=passwall
+set dhcp.@dnsmasq[0].localuse=1
+set firewall.passwall=include
+set firewall.passwall.type=script
+set firewall.passwall.path=/var/etc/passwall.include
+set firewall.passwall.fw4_compatible=1
+commit ucitrack
+commit dhcp
+commit firewall
 EOF
-
-[ ! -s "/etc/config/passwall" ] && cp -f /usr/share/passwall/0_default_config /etc/config/passwall
-
-# Discard settings for features removed from this personal build; retain nodes.
-for type in global_app global_subscribe subscribe_list; do
-	while uci -q delete "passwall.@$type[0]"; do :; done
-done
-uci -q delete 'passwall.@global_delay[0].start_daemon'
-for option in geoip_update geosite_update v2ray_location_asset interval_update; do
-	uci -q delete "passwall.@global_rules[0].$option"
-done
-while uci -q delete 'passwall.@global_singbox[0]'; do :; done
-uci -q delete 'passwall.@global[0].remote_fakedns'
-if [ "$(uci -q get 'passwall.@global_rules[0].week_update')" = 8 ]; then
-	uci set 'passwall.@global_rules[0].auto_update=0'
-	uci -q delete 'passwall.@global_rules[0].week_update'
-fi
-for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p'); do
-	uci -q delete "passwall.$node.add_mode"
-	uci -q delete "passwall.$node.add_from"
-done
-uci -q delete 'passwall.@global_rules[0].chnlist_update'
-uci -q delete 'passwall.@global_rules[0].chnlist_url'
-while uci -q delete 'passwall.@global_other[0]'; do :; done
-rm -f /usr/share/passwall/rules/chnlist
-# One-time conversion keeps existing proxy endpoints while removing old types.
-if [ "$(uci -q get 'passwall.@global[0].dns_mode')" = dns2socks ]; then
-	uci set 'passwall.@global[0].dns_mode=xray'
-fi
-if [ "$(uci -q get 'passwall.@global[0].direct_dns_mode')" = dot ]; then
-	uci set 'passwall.@global[0].direct_dns_mode=tcp'
-fi
-uci -q delete 'passwall.@global[0].direct_dns_dot'
-uci -q delete 'passwall.@global[0].socks_server'
-for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p'); do
-	if [ "$(uci -q get "passwall.$node.type")" = Socks ]; then
-		uci set "passwall.$node.type=Xray"
-		uci set "passwall.$node.protocol=socks"
-		uci set "passwall.$node.transport=tcp"
-	fi
-done
-uci -q delete 'passwall.@global[0].filter_proxy_ipv6'
-uci -q delete 'passwall.@global[0].trojan_loglevel'
-uci commit passwall
-
-chmod +x /usr/share/passwall/*.sh
 
 rm -f /tmp/luci-indexcache*
 rm -rf /tmp/luci-modulecache/
