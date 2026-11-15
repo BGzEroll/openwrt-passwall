@@ -52,25 +52,10 @@ function s.remove(e, t)
 end
 
 s.sortable = true
--- 简洁模式
-o = s:option(DummyValue, "add_from", "")
-o.cfgvalue = function(t, n)
-	local v = Value.cfgvalue(t, n)
-	if v and v ~= '' then
-		local group = m:get(n, "group") or ""
-		if group ~= "" then
-			v = v .. " " .. group
-		end
-		return v
-	else
-		return ''
-	end
-end
 o = s:option(DummyValue, "remarks", translate("Remarks"))
 o.rawhtml = true
 o.cfgvalue = function(t, n)
 	local str = ""
-	local is_sub = m:get(n, "is_sub") or ""
 	local group = m:get(n, "group") or ""
 	local remarks = m:get(n, "remarks") or ""
 	local type = m:get(n, "type") or ""
@@ -104,6 +89,9 @@ o.cfgvalue = function(t, n)
 	local address = m:get(n, "address") or ""
 	local port = m:get(n, "port") or ""
 	str = str .. translate(type) .. "：" .. remarks
+	if group ~= "" then
+		str = str .. " (" .. group .. ")"
+	end
 	if address ~= "" and port ~= "" then
 		if show_node_info == "1" then
 			if datatypes.ip6addr(address) then

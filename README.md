@@ -12,6 +12,14 @@
 
 > **Passwall 负责 WHO / WHICH PORTS / WHERE；Proxy Action 只负责把 PROXY 流量送到本机 TPROXY 或外置代理机。**
 
+## 个人裁剪范围
+
+- 节点仅手动新增、编辑或从分享链接导入，不提供订阅及订阅调度。
+- 守护进程随 Passwall 强制启动，不提供关闭选项。
+- 不提供组件更新或自定义程序路径；核心使用 `/usr/bin/` 下的标准程序，Xray 资源目录固定为 `/usr/share/v2ray/`。
+- 不支持 GeoIP/GeoSite 数据或表达式；规则更新仅处理域名及 IPv4/IPv6 文本列表，支持手动更新和每日/每周 cron，不提供循环更新进程。
+- 规则列表分别显示中国列表的 IPv4 和 IPv6 内容。
+
 ## 专用架构约束
 
 - 客户端透明代理仅使用 nftables，不再提供 iptables 后端选择。

@@ -23,12 +23,9 @@ function index()
 	--[[ Client ]]
 	entry({"admin", "services", appname, "settings"}, cbi(appname .. "/client/global"), _("Basic Settings"), 1).dependent = true
 	entry({"admin", "services", appname, "node_list"}, cbi(appname .. "/client/node_list"), _("Node List"), 2).dependent = true
-	entry({"admin", "services", appname, "node_subscribe"}, cbi(appname .. "/client/node_subscribe"), _("Node Subscribe"), 3).dependent = true
 	entry({"admin", "services", appname, "other"}, cbi(appname .. "/client/other", {autoapply = true}), _("Other Settings"), 92).leaf = true
-	entry({"admin", "services", appname, "app_update"}, cbi(appname .. "/client/app_update"), _("App Update"), 95).leaf = true
 	entry({"admin", "services", appname, "rule"}, cbi(appname .. "/client/rule"), _("Rule Manage"), 96).leaf = true
 	entry({"admin", "services", appname, "rule_list"}, cbi(appname .. "/client/rule_list"), _("Rule List"), 97).leaf = true
-	entry({"admin", "services", appname, "node_subscribe_config"}, cbi(appname .. "/client/node_subscribe_config")).leaf = true
 	entry({"admin", "services", appname, "node_config"}, cbi(appname .. "/client/node_config")).leaf = true
 	entry({"admin", "services", appname, "shunt_rules"}, cbi(appname .. "/client/shunt_rules")).leaf = true
 	entry({"admin", "services", appname, "acl"}, cbi(appname .. "/client/acl"), _("Access control"), 98).leaf = true
@@ -49,14 +46,6 @@ function index()
 	entry({"admin", "services", appname, "delete_select_nodes"}, call("delete_select_nodes")).leaf = true
 	entry({"admin", "services", appname, "update_rules"}, call("update_rules")).leaf = true
 
-	--[[Components update]]
-	entry({"admin", "services", appname, "check_passwall"}, call("app_check")).leaf = true
-	local coms = require "luci.passwall.com"
-	local com
-	for com, _ in pairs(coms) do
-		entry({"admin", "services", appname, "check_" .. com}, call("com_check", com)).leaf = true
-		entry({"admin", "services", appname, "update_" .. com}, call("com_update", com)).leaf = true
-	end
 end
 
 local function http_write_json(content)
@@ -65,10 +54,20 @@ local function http_write_json(content)
 end
 
 function link_add_node()
-	local lfile = "/tmp/links.conf"
-	local link = luci.http.formvalue("link")
-	luci.sys.call('echo \'' .. link .. '\' > ' .. lfile)
-	luci.sys.call("lua /usr/share/passwall/subscribe.lua add log")
+	local link = http.formvalue("link")
+	if not link or link == "" then
+		http.status(400, "No node links supplied")
+		return
+	end
+	local path = util.trim(luci.sys.exec("mktemp /tmp/passwall-import.XXXXXX"))
+	if path == "" or not nixio.fs.writefile(path, link) then
+		if path ~= "" then nixio.fs.remove(path) end
+		http.status(500, "Cannot stage node links")
+		return
+	end
+	local status = luci.sys.call("lua /usr/share/passwall/import.lua " .. util.shellquote(path))
+	nixio.fs.remove(path)
+	if status ~= 0 then http.status(400, "Node import failed") end
 end
 
 function get_now_use_node()
@@ -187,8 +186,6 @@ function copy_node()
 			end)
 		end
 	end
-	uci:delete(appname, uuid, "add_from")
-	uci:set(appname, uuid, "add_mode", 1)
 	uci:commit(appname)
 	luci.http.redirect(api.url("node_config", uuid))
 end
@@ -221,31 +218,19 @@ function delete_select_nodes()
 end
 
 function update_rules()
-	local update = luci.http.formvalue("update")
-	luci.sys.call("lua /usr/share/passwall/rule_update.lua log '" .. update .. "' > /dev/null 2>&1 &")
-	http_write_json()
-end
-
-function app_check()
-	local json = api.to_check_self()
-	http_write_json(json)
-end
-
-function com_check(comname)
-	local json = api.to_check("",comname)
-	http_write_json(json)
-end
-
-function com_update(comname)
-	local json = nil
-	local task = http.formvalue("task")
-	if task == "extract" then
-		json = api.to_extract(comname, http.formvalue("file"), http.formvalue("subfix"))
-	elseif task == "move" then
-		json = api.to_move(comname, http.formvalue("file"))
-	else
-		json = api.to_download(comname, http.formvalue("url"), http.formvalue("size"))
+	local allowed = {gfwlist = true, chnroute = true, chnroute6 = true, chnlist = true}
+	local selected = {}
+	for name in (http.formvalue("update") or ""):gmatch("[^,]+") do
+		if not allowed[name] then
+			http.status(400, "Unsupported rule list")
+			return
+		end
+		selected[#selected + 1] = name
 	end
-
-	http_write_json(json)
+	if #selected == 0 then
+		http.status(400, "No rule list selected")
+		return
+	end
+	luci.sys.call("lua /usr/share/passwall/rule_update.lua log " .. util.shellquote(table.concat(selected, ",")) .. " > /dev/null 2>&1 &")
+	http_write_json()
 end

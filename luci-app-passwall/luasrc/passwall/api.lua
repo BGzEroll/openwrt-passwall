@@ -11,10 +11,6 @@ i18n = require "luci.i18n"
 
 appname = "passwall"
 curl_args = { "-skfL", "--connect-timeout 3", "--retry 3" }
-command_timeout = 300
-OPENWRT_ARCH = nil
-DISTRIB_ARCH = nil
-OPENWRT_BOARD = nil
 
 LOG_FILE = "/tmp/log/" .. appname .. ".log"
 CACHE_PATH = "/tmp/etc/" .. appname .. "_tmp"
@@ -26,6 +22,23 @@ function log(...)
 		f:write(result .. "\n")
 		f:close()
 	end
+end
+
+-- Reject the whole old rule so removing a Geo selector cannot widen its match.
+function is_supported_shunt_rule(rule)
+	for _, key in ipairs({"source", "domain_list", "ip_list"}) do
+		local value = rule[key]
+		if type(value) == "string" then
+			local pattern = key == "source" and "%S+" or "[^\r\n]+"
+			for item in value:gmatch(pattern) do
+				item = item:gsub("^%s+", "")
+				if item:find("^geoip:") or item:find("^geosite:") or item:find("^ext:") then
+					return false
+				end
+			end
+		end
+	end
+	return true
 end
 
 function exec_call(cmd)
@@ -326,12 +339,9 @@ end
 
 function finded_com(e)
 	local bin = get_app_path(e)
-	if not bin then return end
-	local s = luci.sys.exec('echo -n $(type -t -p "%s" | head -n1)' % { bin })
-	if s == "" then
-		s = nil
+	if bin and fs.access(bin, "x") then
+		return bin
 	end
-	return s
 end
 
 function finded(e)
@@ -378,50 +388,14 @@ local function get_bin_version_cache(file, cmd)
 end
 
 function get_app_path(app_name)
-	if com[app_name] then
-		local def_path = com[app_name].default_path
-		local path = uci_get_type("global_app", app_name:gsub("%-","_") .. "_file")
-		path = path and (#path>0 and path or def_path) or def_path
-		return path
-	end
+	local app = com[app_name]
+	return app and app.path
 end
 
-function get_app_version(app_name, file)
-	if file == nil then file = get_app_path(app_name) end
-	return get_bin_version_cache(file, com[app_name].cmd_version)
-end
-
-local function is_dir(path)
-	if path and #path > 1 then
-		if sys.exec('[ -d "%s" ] && echo -n 1' % path) == "1" then
-			return true
-		end
-	end
-	return nil
-end
-
-local function get_final_dir(path)
-	if is_dir(path) then
-		return path
-	else
-		return get_final_dir(fs.dirname(path))
-	end
-end
-
-local function get_free_space(dir)
-	if dir == nil then dir = "/" end
-	if sys.call("df -k " .. dir .. " >/dev/null 2>&1") == 0 then
-		return tonumber(sys.exec("echo -n $(df -k " .. dir .. " | awk 'NR>1' | awk '{print $4}')"))
-	end
-	return 0
-end
-
-local function get_file_space(file)
-	if file == nil then return 0 end
-	if fs.access(file) then
-		return tonumber(sys.exec("echo -n $(du -k " .. file .. " | awk '{print $1}')"))
-	end
-	return 0
+function get_app_version(app_name)
+	local app = com[app_name]
+	if not app then return "" end
+	return get_bin_version_cache(app.path, app.cmd_version)
 end
 
 function _unpack(t, i)
@@ -438,51 +412,6 @@ function table_join(t, s)
 		str = str .. t[index] .. (index == #t and "" or s)
 	end
 	return str
-end
-
-local function exec(cmd, args, writer, timeout)
-	local os = require "os"
-	local nixio = require "nixio"
-
-	local fdi, fdo = nixio.pipe()
-	local pid = nixio.fork()
-
-	if pid > 0 then
-		fdo:close()
-
-		if writer or timeout then
-			local starttime = os.time()
-			while true do
-				if timeout and os.difftime(os.time(), starttime) >= timeout then
-					nixio.kill(pid, nixio.const.SIGTERM)
-					return 1
-				end
-
-				if writer then
-					local buffer = fdi:read(2048)
-					if buffer and #buffer > 0 then
-						writer(buffer)
-					end
-				end
-
-				local wpid, stat, code = nixio.waitpid(pid, "nohang")
-
-				if wpid and stat == "exited" then return code end
-
-				if not writer and timeout then nixio.nanosleep(1) end
-			end
-		else
-			local wpid, stat, code = nixio.waitpid(pid)
-			return wpid and stat == "exited" and code
-		end
-	elseif pid == 0 then
-		nixio.dup(fdo, nixio.stdout)
-		fdi:close()
-		fdo:close()
-		nixio.exece(cmd, args, nil)
-		nixio.stdout:close()
-		os.exit(1)
-	end
 end
 
 function compare_versions(ver1, comp, ver2)
@@ -509,50 +438,6 @@ function compare_versions(ver1, comp, ver2)
 	end
 
 	return not (comp == "<" or comp == ">")
-end
-
-local function auto_get_arch()
-	local arch = nixio.uname().machine or ""
-	if not OPENWRT_ARCH and fs.access("/usr/lib/os-release") then
-		OPENWRT_ARCH = sys.exec("echo -n $(grep 'OPENWRT_ARCH' /usr/lib/os-release | awk -F '[\\042\\047]' '{print $2}')")
-		OPENWRT_BOARD = sys.exec("echo -n $(grep 'OPENWRT_BOARD' /usr/lib/os-release | awk -F '[\\042\\047]' '{print $2}')")
-		if OPENWRT_ARCH == "" then OPENWRT_ARCH = nil end
-		if OPENWRT_BOARD == "" then OPENWRT_BOARD = nil end
-	end
-	if not DISTRIB_ARCH and fs.access("/etc/openwrt_release") then
-		DISTRIB_ARCH = sys.exec("echo -n $(grep 'DISTRIB_ARCH' /etc/openwrt_release | awk -F '[\\042\\047]' '{print $2}')")
-		if DISTRIB_ARCH == "" then DISTRIB_ARCH = nil end
-	end
-
-	if arch:match("^i[%d]86$") then
-		arch = "x86"
-	elseif arch:match("armv5") then  -- armv5l
-		arch = "armv5"
-	elseif arch:match("armv6") then
-		arch = "armv6"
-	elseif arch:match("armv7") then  -- armv7l
-		arch = "armv7"
-	end
-
-	if OPENWRT_ARCH or DISTRIB_ARCH then
-		if arch == "mips" then
-			if OPENWRT_ARCH and OPENWRT_ARCH:match("mipsel") == "mipsel"
-			or DISTRIB_ARCH and DISTRIB_ARCH:match("mipsel") == "mipsel" then
-				arch = "mipsel"
-			end
-		elseif arch == "armv7" then
-			if OPENWRT_ARCH and not OPENWRT_ARCH:match("vfp") and not OPENWRT_ARCH:match("neon")
-			or DISTRIB_ARCH and not DISTRIB_ARCH:match("vfp") and not DISTRIB_ARCH:match("neon") then
-				arch = "armv5"
-			end
-		end
-	end
-
-	if arch == "aarch64" and OPENWRT_BOARD and OPENWRT_BOARD:match("rockchip") ~= nil then
-		arch = "rockchip"
-	end
-
-	return util.trim(arch)
 end
 
 function parseURL(url)
@@ -590,315 +475,6 @@ function parseURL(url)
 		password = password,
 		host = host,
 		port = tonumber(port)
-	}
-end
-
-local default_file_tree = {
-	x86_64  = "amd64",
-	x86     = "386",
-	aarch64 = "arm64",
-	rockchip = "arm64",
-	mips    = "mips",
-	mips64  = "mips64",
-	mipsel  = "mipsel",
-	armv5   = "arm.*5",
-	armv6   = "arm.*6[^4]*",
-	armv7   = "arm.*7",
-	armv8   = "arm64"
-}
-
-local function get_api_json(url)
-	local jsonc = require "luci.jsonc"
-	local return_code, content = curl_logic(url, nil, curl_args)
-	if return_code ~= 0 or content == "" then return {} end
-	return jsonc.parse(content) or {}
-end
-
-local function check_path(app_name)
-	local path = get_app_path(app_name) or ""
-	if path == "" then
-		return {
-			code = 1,
-			error = i18n.translatef("You did not fill in the %s path. Please save and apply then update manually.", app_name)
-		}
-	end
-	return {
-		code = 0,
-		app_path = path
-	}
-end
-
-function to_check(arch, app_name)
-	local result = check_path(app_name)
-	if result.code ~= 0 then
-		return result
-	end
-
-	if not arch or arch == "" then arch = auto_get_arch() end
-
-	local file_tree = com[app_name].file_tree[arch] or default_file_tree[arch] or ""
-
-	if file_tree == "" then
-		return {
-			code = 1,
-			error = i18n.translate("Can't determine ARCH, or ARCH not supported.")
-		}
-	end
-
-	local local_version = get_app_version(app_name)
-	local match_file_name = string.format(com[app_name].match_fmt_str, file_tree)
-	local json = get_api_json(com[app_name]:get_url())
-
-	if #json > 0 then
-		json = json[1]
-	end
-
-	if json.tag_name == nil then
-		return {
-			code = 1,
-			error = i18n.translate("Get remote version info failed.")
-		}
-	end
-
-	local remote_version = json.tag_name
-	if com[app_name].remote_version_str_replace then
-		remote_version = remote_version:gsub(com[app_name].remote_version_str_replace, "")
-	end
-	local has_update = compare_versions(local_version:match("[^v]+"), "<", remote_version:match("[^v]+"))
-
-	if not has_update then
-		return {
-			code = 0,
-			local_version = local_version,
-			remote_version = remote_version
-		}
-	end
-
-	local asset = {}
-	for _, v in ipairs(json.assets) do
-		if v.name and v.name:match(match_file_name) then
-			asset = v
-			break
-		end
-	end
-	if not asset.browser_download_url then
-		return {
-			code = 1,
-			local_version = local_version,
-			remote_version = remote_version,
-			html_url = json.html_url,
-			data = asset,
-			error = i18n.translate("New version found, but failed to get new version download url.")
-		}
-	end
-
-	return {
-		code = 0,
-		has_update = true,
-		local_version = local_version,
-		remote_version = remote_version,
-		html_url = json.html_url,
-		data = asset
-	}
-end
-
-function to_download(app_name, url, size)
-	local result = check_path(app_name)
-	if result.code ~= 0 then
-		return result
-	end
-
-	if not url or url == "" then
-		return {code = 1, error = i18n.translate("Download url is required.")}
-	end
-
-	sys.call("/bin/rm -f /tmp/".. app_name .."_download.*")
-
-	local tmp_file = util.trim(util.exec("mktemp -u -t ".. app_name .."_download.XXXXXX"))
-
-	if size then
-		local kb1 = get_free_space("/tmp")
-		if tonumber(size) > tonumber(kb1) then
-			return {code = 1, error = i18n.translatef("%s not enough space.", "/tmp")}
-		end
-	end
-
-	local _curl_args = clone(curl_args)
-	table.insert(_curl_args, "-m 60")
-
-	local return_code, result = curl_logic(url, tmp_file, _curl_args)
-	result = return_code == 0
-
-	if not result then
-		exec("/bin/rm", {"-f", tmp_file})
-		return {
-			code = 1,
-			error = i18n.translatef("File download failed or timed out: %s", url)
-		}
-	end
-
-	return {code = 0, file = tmp_file, zip = com[app_name].zipped }
-end
-
-function to_extract(app_name, file, subfix)
-	local result = check_path(app_name)
-	if result.code ~= 0 then
-		return result
-	end
-
-	if not file or file == "" or not fs.access(file) then
-		return {code = 1, error = i18n.translate("File path required.")}
-	end
-
-	local tools_name
-	if com[app_name].zipped then
-		if not com[app_name].zipped_suffix or com[app_name].zipped_suffix == "zip" then
-			tools_name = "unzip"
-		end
-		if com[app_name].zipped_suffix and com[app_name].zipped_suffix == "tar.gz" then
-			tools_name = "tar"
-		end
-		if tools_name then
-			if sys.exec("echo -n $(command -v %s)" % { tools_name }) == "" then
-				exec("/bin/rm", {"-f", file})
-				return {
-					code = 1,
-					error = i18n.translate("Not installed %s, Can't unzip!" % { tools_name })
-				}
-			end
-		end
-	end
-
-	sys.call("/bin/rm -rf /tmp/".. app_name .."_extract.*")
-
-	local new_file_size = get_file_space(file)
-	local tmp_free_size = get_free_space("/tmp")
-	if tmp_free_size <= 0 or tmp_free_size <= new_file_size then
-		return {code = 1, error = i18n.translatef("%s not enough space.", "/tmp")}
-	end
-
-	local tmp_dir = util.trim(util.exec("mktemp -d -t ".. app_name .."_extract.XXXXXX"))
-
-	local output = {}
-
-	if tools_name then
-		if tools_name == "unzip" then
-			local bin = sys.exec("echo -n $(command -v unzip)")
-			exec(bin, {"-o", file, app_name, "-d", tmp_dir}, function(chunk) output[#output + 1] = chunk end)
-		elseif tools_name == "tar" then
-			local bin = sys.exec("echo -n $(command -v tar)")
-			if com[app_name].zipped_suffix == "tar.gz" then
-				exec(bin, {"-zxf", file, "-C", tmp_dir}, function(chunk) output[#output + 1] = chunk end)
-				sys.call("/bin/mv -f " .. tmp_dir .. "/*/" .. com[app_name].name:lower() .. " " .. tmp_dir)
-			end
-		end
-	end
-
-	local files = util.split(table.concat(output))
-
-	exec("/bin/rm", {"-f", file})
-
-	return {code = 0, file = tmp_dir}
-end
-
-function to_move(app_name,file)
-	local result = check_path(app_name)
-	if result.code ~= 0 then
-		return result
-	end
-
-	local app_path = result.app_path
-	local bin_path = file
-	local cmd_rm_tmp = "/bin/rm -rf /tmp/" .. app_name .. "_download.*"
-	if fs.stat(file, "type") == "dir" then
-		bin_path = file .. "/" .. com[app_name].name:lower()
-		cmd_rm_tmp = "/bin/rm -rf /tmp/" .. app_name .. "_extract.*"
-	end
-
-	if not file or file == "" then
-		sys.call(cmd_rm_tmp)
-		return {code = 1, error = i18n.translate("Client file is required.")}
-	end
-
-	local new_version = get_app_version(app_name, bin_path)
-	if new_version == "" then
-		sys.call(cmd_rm_tmp)
-		return {
-			code = 1,
-			error = i18n.translate("The client file is not suitable for current device.") .. app_name .. "__" .. bin_path
-		}
-	end
-
-	local flag = sys.call('pgrep -af "passwall/.*'.. app_name ..'" >/dev/null')
-	if flag == 0 then
-		sys.call("/etc/init.d/passwall stop")
-	end
-
-	local old_app_size = 0
-	if fs.access(app_path) then
-		old_app_size = get_file_space(app_path)
-	end
-	local new_app_size = get_file_space(bin_path)
-	local final_dir = get_final_dir(app_path)
-	local final_dir_free_size = get_free_space(final_dir)
-	if final_dir_free_size > 0 then
-		final_dir_free_size = final_dir_free_size + old_app_size
-		if new_app_size > final_dir_free_size then
-			sys.call(cmd_rm_tmp)
-			return {code = 1, error = i18n.translatef("%s not enough space.", final_dir)}
-		end
-	end
-
-	result = exec("/bin/mv", { "-f", bin_path, app_path }, nil, command_timeout) == 0
-
-	sys.call(cmd_rm_tmp)
-	if flag == 0 then
-		sys.call("/etc/init.d/passwall restart >/dev/null 2>&1 &")
-	end
-
-	if not result or not fs.access(app_path) then
-		return {
-			code = 1,
-			error = i18n.translatef("Can't move new file to path: %s", app_path)
-		}
-	end
-
-	return {code = 0}
-end
-
-function get_version()
-	return sys.exec("echo -n $(opkg list-installed luci-app-passwall |awk '{print $3}')")
-end
-
-function to_check_self()
-	local url = "https://raw.githubusercontent.com/xiaorouji/openwrt-passwall/main/luci-app-passwall/Makefile"
-	local tmp_file = "/tmp/passwall_makefile"
-	local return_code, result = curl_logic(url, tmp_file, curl_args)
-	result = return_code == 0
-	if not result then
-		exec("/bin/rm", {"-f", tmp_file})
-		return {
-			code = 1,
-			error = i18n.translatef("Failed")
-		}
-	end
-	local local_version  = get_version()
-	local remote_version = sys.exec("echo -n $(grep 'PKG_VERSION' /tmp/passwall_makefile|awk -F '=' '{print $2}')")
-
-	local has_update = compare_versions(local_version, "<", remote_version)
-	if not has_update then
-		return {
-			code = 0,
-			local_version = local_version,
-			remote_version = remote_version
-		}
-	end
-	return {
-		code = 1,
-		has_update = true,
-		local_version = local_version,
-		remote_version = remote_version,
-		error = i18n.translatef("The latest version: %s, currently does not support automatic update, if you need to update, please compile or download the ipk and then manually install.", remote_version)
 	}
 end
 

@@ -4,7 +4,6 @@ require 'nixio'
 require 'luci.sys'
 local luci = luci
 local ucic = luci.model.uci.cursor()
-local jsonc = require "luci.jsonc"
 local datatypes = require "luci.cbi.datatypes"
 local name = 'passwall'
 local api = require ("luci.passwall.api")
@@ -16,14 +15,11 @@ local rule_path = "/usr/share/" .. name .. "/rules"
 local task_tmp_dir
 local rule_publish_dir
 local staged_rules = {}
-local core_resource_changed = false
 local update_failed = false
 local gfwlist_update = 0
 local chnroute_update = 0
 local chnroute6_update = 0
 local chnlist_update = 0
-local geoip_update = 0
-local geosite_update = 0
 
 -- match comments/title/whitelist/ip address/excluded_domain
 local comment_pattern = "^[#!\\[@]+"
@@ -35,9 +31,6 @@ local gfwlist_url = ucic:get(name, "@global_rules[0]", "gfwlist_url") or {"https
 local chnroute_url = ucic:get(name, "@global_rules[0]", "chnroute_url") or {"https://ispip.clang.cn/all_cn.txt"}
 local chnroute6_url =  ucic:get(name, "@global_rules[0]", "chnroute6_url") or {"https://ispip.clang.cn/all_cn_ipv6.txt"}
 local chnlist_url = ucic:get(name, "@global_rules[0]", "chnlist_url") or {"https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/accelerated-domains.china.conf","https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/apple.china.conf","https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/google.china.conf"}
-local geoip_api =  "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
-local geosite_api =  "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
-local asset_location = ucic:get_first(name, 'global_rules', "v2ray_location_asset", "/usr/share/v2ray/")
 if arg3 == "cron" then
 	arg2 = nil
 end
@@ -82,11 +75,6 @@ local function write_file(path, content)
 	local ok = file:write(content)
 	local close_ok = file:close()
 	return ok ~= nil and close_ok ~= nil
-end
-
-local function file_nonempty(path)
-	local size = tonumber(nixio.fs.stat(path, "size"))
-	return size ~= nil and size > 0
 end
 
 local function create_task_tmp_dir()
@@ -258,94 +246,6 @@ local function fetch_chnlist()
 	return fetch_rule("chnlist", "domain", chnlist_url, false)
 end
 
-local function sha256_matches(checksum_path)
-	return luci.sys.call("sha256sum -c " .. shell_quote(checksum_path) .. " >/dev/null 2>&1") == 0
-end
-
--- GeoIP/GeoSite remain on their existing asset path because update_rules only
--- accepts the four text-rule files. Their downloads still use this task's
--- private scratch directory, and a successful asset replacement requests a
--- service restart after the text-rule handoff has released its init lock.
-local function fetch_geo_asset(asset_name, metadata_url)
-	local checksum_name = asset_name .. ".sha256sum"
-	local return_code, content = api.curl_logic(metadata_url)
-	if return_code ~= 0 or not content or content == "" then
-		log(asset_name .. " 更新元数据下载失败。")
-		return false
-	end
-	local json = jsonc.parse(content)
-	if type(json) ~= "table" or not json.assets then
-		log(asset_name .. " 更新元数据解析失败。")
-		return false
-	end
-
-	local checksum_url
-	local asset_url
-	for _, item in ipairs(json.assets) do
-		if item.name == checksum_name then
-			checksum_url = item.browser_download_url
-		elseif item.name == asset_name then
-			asset_url = item.browser_download_url
-		end
-	end
-	if not checksum_url or not asset_url then
-		log(asset_name .. " 更新资源不完整。")
-		return false
-	end
-
-	local checksum_path = task_tmp_dir .. "/" .. checksum_name
-	local data_path = task_tmp_dir .. "/" .. asset_name
-	local curl_status, http_status = curl(checksum_url, checksum_path)
-	if curl_status ~= 0 or http_status ~= 200 or not file_nonempty(checksum_path) then
-		log(asset_name .. " 校验文件下载失败。")
-		return false
-	end
-	local checksum_content = read_file(checksum_path)
-	local escaped_name = asset_name:gsub("([^%w])", "%%%1")
-	local hash = checksum_content and checksum_content:match("([%x]+)%s+%*?" .. escaped_name)
-	if not hash or #hash ~= 64 or not write_file(checksum_path, hash .. "  " .. data_path .. "\n") then
-		log(asset_name .. " 校验文件格式错误。")
-		return false
-	end
-
-	local asset_path = asset_location .. asset_name
-	if nixio.fs.access(asset_path) then
-		os.remove(data_path)
-		local copy_status = luci.sys.call("cp -f " .. shell_quote(asset_path) .. " " .. shell_quote(data_path) .. " >/dev/null 2>&1")
-		if copy_status == 0 and sha256_matches(checksum_path) then
-			log(asset_name .. " 版本一致，无需更新。")
-			return true
-		end
-	end
-
-	curl_status, http_status = curl(asset_url, data_path)
-	if curl_status ~= 0 or http_status ~= 200 or not file_nonempty(data_path) then
-		log(asset_name .. " 数据文件下载失败。")
-		return false
-	end
-	if not sha256_matches(checksum_path) then
-		log(asset_name .. " 校验失败，请稍后再试。")
-		return false
-	end
-
-	local copy_status = luci.sys.call("mkdir -p " .. shell_quote(asset_location) .. " && cp -f " .. shell_quote(data_path) .. " " .. shell_quote(asset_path) .. " >/dev/null 2>&1")
-	if copy_status == 0 then
-		core_resource_changed = true
-		log(asset_name .. " 更新成功。")
-		return true
-	end
-	log(asset_name .. " 文件发布失败。")
-	return false
-end
-
-local function fetch_geoip()
-	return fetch_geo_asset("geoip.dat", geoip_api)
-end
-
-local function fetch_geosite()
-	return fetch_geo_asset("geosite.dat", geosite_api)
-end
-
 local function run_task(label, callback)
 	local ok, result = xpcall(callback, function(e)
 		return tostring(e) .. "\n" .. debug.traceback()
@@ -392,23 +292,15 @@ if arg2 then
 		if w == "chnlist" then
 			chnlist_update = 1
 		end
-		if w == "geoip" then
-			geoip_update = 1
-		end
-		if w == "geosite" then
-			geosite_update = 1
-		end
 	end)
 else
 	gfwlist_update = ucic:get_first(name, 'global_rules', "gfwlist_update", 0)
 	chnroute_update = ucic:get_first(name, 'global_rules', "chnroute_update", 1)
 	chnroute6_update = ucic:get_first(name, 'global_rules', "chnroute6_update", 1)
 	chnlist_update = ucic:get_first(name, 'global_rules', "chnlist_update", 0)
-	geoip_update = ucic:get_first(name, 'global_rules', "geoip_update", 0)
-	geosite_update = ucic:get_first(name, 'global_rules', "geosite_update", 0)
 end
 
-if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 and (tonumber(chnlist_update) or 0) == 0 and (tonumber(geoip_update) or 0) == 0 and (tonumber(geosite_update) or 0) == 0 then
+if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 and (tonumber(chnlist_update) or 0) == 0 then
 	os.exit(0)
 end
 
@@ -440,22 +332,12 @@ if task_tmp_dir and rule_publish_dir then
 	if tonumber(chnlist_update) == 1 then
 		run_task("chnlist", fetch_chnlist)
 	end
-	if tonumber(geoip_update) == 1 then
-		log("geoip 开始更新...")
-		run_task("geoip", fetch_geoip)
-	end
-	if tonumber(geosite_update) == 1 then
-		log("geosite 开始更新...")
-		run_task("geosite", fetch_geosite)
-	end
 end
 
 ucic:set(name, ucic:get_first(name, 'global_rules'), "gfwlist_update", gfwlist_update)
 ucic:set(name, ucic:get_first(name, 'global_rules'), "chnroute_update", chnroute_update)
 ucic:set(name, ucic:get_first(name, 'global_rules'), "chnroute6_update", chnroute6_update)
 ucic:set(name, ucic:get_first(name, 'global_rules'), "chnlist_update", chnlist_update)
-ucic:set(name, ucic:get_first(name, 'global_rules'), "geoip_update", geoip_update)
-ucic:set(name, ucic:get_first(name, 'global_rules'), "geosite_update", geosite_update)
 ucic:save(name)
 luci.sys.call("uci commit " .. name)
 
@@ -464,15 +346,6 @@ if rule_publish_dir then
 		update_failed = true
 	end
 end
-if core_resource_changed then
-	log("核心 geo 资源已变更，重启服务以应用。")
-	local status = luci.sys.call("/etc/init.d/" .. name .. " restart >/dev/null 2>&1")
-	if status ~= 0 then
-		update_failed = true
-		log("核心 geo 资源已更新，但服务重启失败。")
-	end
-end
-
 cleanup_task_tmp_dir()
 if update_failed then
 	log("规则更新结束，部分操作失败。")

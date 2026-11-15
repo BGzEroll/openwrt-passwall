@@ -218,9 +218,10 @@ get_new_port() {
 	fi
 }
 
-first_type() {
-	local path_name=${1}
-	type -t -p "/bin/${path_name}" -p "${TMP_BIN_PATH}/${path_name}" -p "${path_name}" "$@" | head -n1
+binary_path() {
+	local path="/usr/bin/$1"
+	[ "$1" != dnsmasq ] || path=/usr/sbin/dnsmasq
+	[ -x "$path" ] && printf '%s\n' "$path"
 }
 
 eval_set_val() {
@@ -285,7 +286,7 @@ run_ipt2socks() {
 	;;
 	esac
 	_extra_param="${_extra_param} -v"
-	ln_run "$(first_type ipt2socks)" "ipt2socks_${flag}" $log_file -l $local_port -b 0.0.0.0 -s $socks_address -p $socks_port ${_extra_param}
+	ln_run "$(binary_path ipt2socks)" "ipt2socks_${flag}" $log_file -l $local_port -b 0.0.0.0 -s $socks_address -p $socks_port ${_extra_param}
 }
 
 run_singbox() {
@@ -297,7 +298,7 @@ run_singbox() {
 	[ -z "$type" ] && {
 		local type=$(echo $(config_n_get $node type) | tr 'A-Z' 'a-z')
 		if [ "$type" != "sing-box" ]; then
-			bin=$(first_type $(config_t_get global_app singbox_file) sing-box)
+			bin=$(binary_path sing-box)
 			[ -n "$bin" ] && type="sing-box"
 		fi
 	}
@@ -313,7 +314,7 @@ run_singbox() {
 	[ "$loglevel" = "warning" ] && loglevel="warn"
 	_extra_param="${_extra_param} -loglevel $loglevel"
 
-	_extra_param="${_extra_param} -tags $($(first_type $(config_t_get global_app singbox_file) sing-box) version | grep 'Tags:' | awk '{print $2}')"
+	_extra_param="${_extra_param} -tags $($(binary_path sing-box) version | grep 'Tags:' | awk '{print $2}')"
 
 	[ -n "$flag" ] && _extra_param="${_extra_param} -flag $flag"
 	[ -n "$node" ] && _extra_param="${_extra_param} -node $node"
@@ -372,7 +373,7 @@ run_singbox() {
 	esac
 	[ "$remote_fakedns" = "1" ] && _extra_param="${_extra_param} -remote_dns_fake 1"
 	lua $UTIL_SINGBOX gen_config ${_extra_param} > $config_file
-	ln_run "$(first_type $(config_t_get global_app singbox_file) sing-box)" "sing-box" $log_file run -c "$config_file"
+	ln_run "$(binary_path sing-box)" "sing-box" $log_file run -c "$config_file"
 }
 
 run_xray() {
@@ -384,7 +385,7 @@ run_xray() {
 	[ -z "$type" ] && {
 		local type=$(echo $(config_n_get $node type) | tr 'A-Z' 'a-z')
 		if [ "$type" != "xray" ]; then
-			bin=$(first_type $(config_t_get global_app xray_file) xray)
+			bin=$(binary_path xray)
 			[ -n "$bin" ] && type="xray"
 		fi
 	}
@@ -429,7 +430,7 @@ run_xray() {
 	}
 	_extra_param="${_extra_param} -loglevel $loglevel"
 	lua $UTIL_XRAY gen_config ${_extra_param} > $config_file
-	ln_run "$(first_type $(config_t_get global_app ${type}_file) ${type})" ${type} $log_file run -c "$config_file"
+	ln_run "$(binary_path "$type")" ${type} $log_file run -c "$config_file"
 }
 
 run_dns2socks() {
@@ -447,7 +448,7 @@ run_dns2socks() {
 	[ -n "$socks_username" ] && [ -n "$socks_password" ] && _extra_param="${_extra_param} /u $socks_username /p $socks_password"
 	[ -z "$cache" ] && cache=1
 	[ "$cache" = "0" ] && _extra_param="${_extra_param} /d"
-	ln_run "$(first_type dns2socks)" "dns2socks${flag}" $log_file ${_extra_param} "${socks_address}:${socks_port}" "${dns}" "${listen_address}:${listen_port}"
+	ln_run "$(binary_path dns2socks)" "dns2socks${flag}" $log_file ${_extra_param} "${socks_address}:${socks_port}" "${dns}" "${listen_address}:${listen_port}"
 }
 
 run_chinadns_ng() {
@@ -556,7 +557,7 @@ run_chinadns_ng() {
 	([ -z "${_default_tag}" ] || [ "${_default_tag}" = "smart" ] || [ "${_default_tag}" = "none_noip" ]) && _default_tag="none"
 	echo "default-tag ${_default_tag}" >> ${_CONF_FILE}
 
-	ln_run "$(first_type chinadns-ng)" chinadns-ng "${_LOG_FILE}" -C ${_CONF_FILE}
+	ln_run "$(binary_path chinadns-ng)" chinadns-ng "${_LOG_FILE}" -C ${_CONF_FILE}
 }
 
 run_socks() {
@@ -615,13 +616,13 @@ run_socks() {
 			config_file=$(echo $config_file | sed "s/SOCKS/HTTP_SOCKS/g")
 			local _extra_param="-local_http_address $bind -local_http_port $http_port"
 		}
-		local bin=$(first_type $(config_t_get global_app singbox_file) sing-box)
+		local bin=$(binary_path sing-box)
 		if [ -n "$bin" ]; then
 			type="sing-box"
 			lua $UTIL_SINGBOX gen_proto_config -local_socks_address $bind -local_socks_port $socks_port ${_extra_param} -server_proto socks -server_address ${_socks_address} -server_port ${_socks_port} -server_username ${_socks_username} -server_password ${_socks_password} > $config_file
 			ln_run "$bin" ${type} $log_file run -c "$config_file"
 		else
-			bin=$(first_type $(config_t_get global_app xray_file) xray)
+			bin=$(binary_path xray)
 			[ -n "$bin" ] && {
 				type="xray"
 				lua $UTIL_XRAY gen_proto_config -local_socks_address $bind -local_socks_port $socks_port ${_extra_param} -server_proto socks -server_address ${_socks_address} -server_port ${_socks_port} -server_username ${_socks_username} -server_password ${_socks_password} > $config_file
@@ -649,19 +650,19 @@ run_socks() {
 	;;
 	trojan*)
 		lua $UTIL_TROJAN gen_config -node $node -run_type client -local_addr $bind -local_port $socks_port -server_host $server_host -server_port $port > $config_file
-		ln_run "$(first_type ${type})" "${type}" $log_file -c "$config_file"
+		ln_run "$(binary_path ${type})" "${type}" $log_file -c "$config_file"
 	;;
 	naiveproxy)
 		lua $UTIL_NAIVE gen_config -node $node -run_type socks -local_addr $bind -local_port $socks_port -server_host $server_host -server_port $port > $config_file
-		ln_run "$(first_type naive)" naive $log_file "$config_file"
+		ln_run "$(binary_path naive)" naive $log_file "$config_file"
 	;;
 	ssr)
 		lua $UTIL_SS gen_config -node $node -local_addr $bind -local_port $socks_port -server_host $server_host -server_port $port > $config_file
-		ln_run "$(first_type ssr-local)" "ssr-local" $log_file -c "$config_file" -v -u
+		ln_run "$(binary_path ssr-local)" "ssr-local" $log_file -c "$config_file" -v -u
 	;;
 	ss)
 		lua $UTIL_SS gen_config -node $node -local_addr $bind -local_port $socks_port -server_host $server_host -server_port $port -mode tcp_and_udp > $config_file
-		ln_run "$(first_type ss-local)" "ss-local" $log_file -c "$config_file" -v
+		ln_run "$(binary_path ss-local)" "ss-local" $log_file -c "$config_file" -v
 	;;
 	ss-rust)
 		[ "$http_port" != "0" ] && {
@@ -670,7 +671,7 @@ run_socks() {
 			local _extra_param="-local_http_address $bind -local_http_port $http_port"
 		}
 		lua $UTIL_SS gen_config -node $node -local_socks_address $bind -local_socks_port $socks_port -server_host $server_host -server_port $port ${_extra_param} > $config_file
-		ln_run "$(first_type sslocal)" "sslocal" $log_file -c "$config_file" -v
+		ln_run "$(binary_path sslocal)" "sslocal" $log_file -c "$config_file" -v
 	;;
 	hysteria2)
 		[ "$http_port" != "0" ] && {
@@ -679,11 +680,11 @@ run_socks() {
 			local _extra_param="-local_http_address $bind -local_http_port $http_port"
 		}
 		lua $UTIL_HYSTERIA2 gen_config -node $node -local_socks_address $bind -local_socks_port $socks_port -server_host $server_host -server_port $port ${_extra_param} > $config_file
-		ln_run "$(first_type $(config_t_get global_app hysteria_file))" "hysteria" $log_file -c "$config_file" client
+		ln_run "$(binary_path hysteria)" "hysteria" $log_file -c "$config_file" client
 	;;
 	tuic)
 		lua $UTIL_TUIC gen_config -node $node -local_addr $bind -local_port $socks_port -server_host $server_host -server_port $port > $config_file
-		ln_run "$(first_type tuic-client)" "tuic-client" $log_file -c "$config_file"
+		ln_run "$(binary_path tuic-client)" "tuic-client" $log_file -c "$config_file"
 	;;
 	esac
 
@@ -691,13 +692,13 @@ run_socks() {
 
 	# http to socks
 	[ -z "$http_flag" ] && [ "$http_port" != "0" ] && [ -n "$http_config_file" ] && [ "$type" != "sing-box" ] && [ "$type" != "xray" ] && [ "$type" != "socks" ] && {
-		local bin=$(first_type $(config_t_get global_app singbox_file) sing-box)
+		local bin=$(binary_path sing-box)
 		if [ -n "$bin" ]; then
 			type="sing-box"
 			lua $UTIL_SINGBOX gen_proto_config -local_http_address $bind -local_http_port $http_port -server_proto socks -server_address "127.0.0.1" -server_port $socks_port -server_username $_username -server_password $_password > $http_config_file
 			ln_run "$bin" ${type} /dev/null run -c "$http_config_file"
 		else
-			bin=$(first_type $(config_t_get global_app xray_file) xray)
+			bin=$(binary_path xray)
 			[ -n "$bin" ] && type="xray"
 			[ -z "$type" ] && return 1
 			lua $UTIL_XRAY gen_proto_config local_http_address $bind -local_http_port $http_port -server_proto socks -server_address "127.0.0.1" -server_port $socks_port -server_username $_username -server_password $_password > $http_config_file
@@ -754,26 +755,26 @@ run_redir() {
 		trojan*)
 			local loglevel=$(config_t_get global trojan_loglevel "2")
 			lua $UTIL_TROJAN gen_config -node $node -run_type nat -local_addr "0.0.0.0" -local_port $local_port -loglevel $loglevel > $config_file
-			ln_run "$(first_type ${type})" "${type}" $log_file -c "$config_file"
+			ln_run "$(binary_path ${type})" "${type}" $log_file -c "$config_file"
 		;;
 		naiveproxy)
 			echolog "Naiveproxy不支持UDP转发！"
 		;;
 		ssr)
 			lua $UTIL_SS gen_config -node $node -local_addr "0.0.0.0" -local_port $local_port > $config_file
-			ln_run "$(first_type ssr-redir)" "ssr-redir" $log_file -c "$config_file" -v -U
+			ln_run "$(binary_path ssr-redir)" "ssr-redir" $log_file -c "$config_file" -v -U
 		;;
 		ss)
 			lua $UTIL_SS gen_config -node $node -local_addr "0.0.0.0" -local_port $local_port -mode udp_only > $config_file
-			ln_run "$(first_type ss-redir)" "ss-redir" $log_file -c "$config_file" -v
+			ln_run "$(binary_path ss-redir)" "ss-redir" $log_file -c "$config_file" -v
 		;;
 		ss-rust)
 			lua $UTIL_SS gen_config -node $node -local_udp_redir_port $local_port > $config_file
-			ln_run "$(first_type sslocal)" "sslocal" $log_file -c "$config_file" -v
+			ln_run "$(binary_path sslocal)" "sslocal" $log_file -c "$config_file" -v
 		;;
 		hysteria2)
 			lua $UTIL_HYSTERIA2 gen_config -node $node -local_udp_redir_port $local_port > $config_file
-			ln_run "$(first_type $(config_t_get global_app hysteria_file))" "hysteria" $log_file -c "$config_file" client
+			ln_run "$(binary_path hysteria)" "hysteria" $log_file -c "$config_file" client
 		;;
 		tuic)
 			echolog "TUIC不支持UDP转发！"
@@ -935,11 +936,11 @@ run_redir() {
 			}
 			local loglevel=$(config_t_get global trojan_loglevel "2")
 			lua $UTIL_TROJAN gen_config -node $node -run_type nat -local_addr "0.0.0.0" -local_port $local_port -loglevel $loglevel $lua_tproxy_arg > $config_file
-			ln_run "$(first_type ${type})" "${type}" $log_file -c "$config_file"
+			ln_run "$(binary_path ${type})" "${type}" $log_file -c "$config_file"
 		;;
 		naiveproxy)
 			lua $UTIL_NAIVE gen_config -node $node -run_type redir -local_addr "0.0.0.0" -local_port $local_port > $config_file
-			ln_run "$(first_type naive)" naive $log_file "$config_file"
+			ln_run "$(binary_path naive)" naive $log_file "$config_file"
 		;;
 		ssr)
 			lua_tproxy_arg="-tcp_tproxy true"
@@ -950,7 +951,7 @@ run_redir() {
 				_extra_param="-u"
 			}
 			lua $UTIL_SS gen_config -node $node -local_addr "0.0.0.0" -local_port $local_port $lua_tproxy_arg > $config_file
-			ln_run "$(first_type ssr-redir)" "ssr-redir" $log_file -c "$config_file" -v ${_extra_param}
+			ln_run "$(binary_path ssr-redir)" "ssr-redir" $log_file -c "$config_file" -v ${_extra_param}
 		;;
 		ss)
 			lua_tproxy_arg="-tcp_tproxy true"
@@ -962,7 +963,7 @@ run_redir() {
 				lua_mode_arg="-mode tcp_and_udp"
 			}
 			lua $UTIL_SS gen_config -node $node -local_addr "0.0.0.0" -local_port $local_port $lua_mode_arg $lua_tproxy_arg > $config_file
-			ln_run "$(first_type ss-redir)" "ss-redir" $log_file -c "$config_file" -v
+			ln_run "$(binary_path ss-redir)" "ss-redir" $log_file -c "$config_file" -v
 		;;
 		ss-rust)
 			local _extra_param="-local_tcp_redir_port $local_port"
@@ -979,7 +980,7 @@ run_redir() {
 				_extra_param="${_extra_param} -local_udp_redir_port $local_port"
 			}
 			lua $UTIL_SS gen_config -node $node ${_extra_param} > $config_file
-			ln_run "$(first_type sslocal)" "sslocal" $log_file -c "$config_file" -v
+			ln_run "$(binary_path sslocal)" "sslocal" $log_file -c "$config_file" -v
 		;;
 		hysteria2)
 			local _extra_param="-local_tcp_redir_port $local_port"
@@ -995,7 +996,7 @@ run_redir() {
 				_extra_param="${_extra_param} -local_udp_redir_port $local_port"
 			}
 			lua $UTIL_HYSTERIA2 gen_config -node $node ${_extra_param} > $config_file
-			ln_run "$(first_type $(config_t_get global_app hysteria_file))" "hysteria" $log_file -c "$config_file" client
+			ln_run "$(binary_path hysteria)" "hysteria" $log_file -c "$config_file" client
 		;;
 		esac
 		if [ -n "${_socks_flag}" ]; then
@@ -1054,101 +1055,37 @@ clean_log() {
 	}
 }
 
-clean_crontab() {
-	[ -f "/tmp/lock/${CONFIG}_cron.lock" ] && return
-	touch /etc/crontabs/root
-	#sed -i "/${CONFIG}/d" /etc/crontabs/root >/dev/null 2>&1
-	sed -i "/$(echo "/etc/init.d/${CONFIG}" | sed 's#\/#\\\/#g')/d" /etc/crontabs/root >/dev/null 2>&1
-	sed -i "/$(echo "lua ${APP_PATH}/rule_update.lua log" | sed 's#\/#\\\/#g')/d" /etc/crontabs/root >/dev/null 2>&1
-	sed -i "/$(echo "lua ${APP_PATH}/subscribe.lua start" | sed 's#\/#\\\/#g')/d" /etc/crontabs/root >/dev/null 2>&1
-
-	pgrep -af "${CONFIG}/" | awk '/tasks\.sh/{print $1}' | xargs kill -9 >/dev/null 2>&1
-	rm -rf /tmp/lock/${CONFIG}_tasks.lock
+app_monitor_start() {
+	"$APP_PATH/monitor.sh" 9>&- >/dev/null 2>&1 &
+	echo $! >> "$STATE_PATH/pids"
 }
 
-start_crontab() {
-	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED" == 1 ]; then
-		start_daemon=$(config_t_get global_delay start_daemon 0)
-		[ "$start_daemon" = "1" ] && {
-			$APP_PATH/monitor.sh 9>&- > /dev/null 2>&1 &
-			echo $! >> "$STATE_PATH/pids"
-		}
-	fi
-
-	[ -f "/tmp/lock/${CONFIG}_cron.lock" ] && {
-		rm -rf "/tmp/lock/${CONFIG}_cron.lock"
-		echolog "当前为计划任务自动运行，不重新配置定时任务。"
-		return
-	}
-
-	clean_crontab
-
-	[ "$ENABLED" != 1 ] && {
-		/etc/init.d/cron restart
-		return
-	}
-
-	autoupdate=$(config_t_get global_rules auto_update)
-	weekupdate=$(config_t_get global_rules week_update)
-	dayupdate=$(config_t_get global_rules time_update)
-	if [ "$autoupdate" = "1" ]; then
-		local t="0 $dayupdate * * $weekupdate"
-		[ "$weekupdate" = "7" ] && t="0 $dayupdate * * *"
-		if [ "$weekupdate" = "8" ]; then
-			update_loop=1
-		else
-			echo "$t lua $APP_PATH/rule_update.lua log all cron > /dev/null 2>&1 &" >>/etc/crontabs/root
+app_crontab() {
+	local active="$1" file="$STATE_PATH/cron.next" week hour
+	mkdir -p /etc/crontabs
+	[ -f /etc/crontabs/root ] || touch /etc/crontabs/root
+	# Remove only Passwall-owned entries, including obsolete jobs from older builds.
+	sed '\|/usr/share/passwall/|d; \|/etc/init.d/passwall|d' /etc/crontabs/root > "$file" || return 1
+	if [ "$active" = 1 ] && [ "$(config_t_get global_rules auto_update 0)" = 1 ]; then
+		week=$(config_t_get global_rules week_update 4)
+		hour=$(config_t_get global_rules time_update 6)
+		case "$week" in
+			0|1|2|3|4|5|6) ;;
+			7) week='*' ;;
+			*) week='' ;;
+		esac
+		case "$hour" in ''|*[!0-9]*) hour='' ;; esac
+		if [ -n "$week" ] && [ -n "$hour" ] && [ "$hour" -le 23 ]; then
+			printf '0 %s * * %s lua %s/rule_update.lua log all cron > /dev/null 2>&1\n' "$hour" "$week" "$APP_PATH" >> "$file"
 		fi
-		echolog "配置定时任务：自动更新规则。"
 	fi
-
-	TMP_SUB_PATH=$TMP_PATH/sub_crontabs
-	mkdir -p $TMP_SUB_PATH
-	for item in $(uci show ${CONFIG} | grep "=subscribe_list" | cut -d '.' -sf 2 | cut -d '=' -sf 1); do
-		if [ "$(config_n_get $item auto_update 0)" = "1" ]; then
-			cfgid=$(uci show ${CONFIG}.$item | head -n 1 | cut -d '.' -sf 2 | cut -d '=' -sf 1)
-			remark=$(config_n_get $item remark)
-			week_update=$(config_n_get $item week_update)
-			time_update=$(config_n_get $item time_update)
-			echo "$cfgid" >> $TMP_SUB_PATH/${week_update}_${time_update}
-			echolog "配置定时任务：自动更新【$remark】订阅。"
-		fi
-	done
-
-	[ -d "${TMP_SUB_PATH}" ] && {
-		for name in $(ls ${TMP_SUB_PATH}); do
-			week_update=$(echo $name | awk -F '_' '{print $1}')
-			time_update=$(echo $name | awk -F '_' '{print $2}')
-			cfgids=$(echo -n $(cat ${TMP_SUB_PATH}/${name}) | sed 's# #,#g')
-			local t="0 $time_update * * $week_update"
-			[ "$week_update" = "7" ] && t="0 $time_update * * *"
-			if [ "$week_update" = "8" ]; then
-				update_loop=1
-			else
-				echo "$t lua $APP_PATH/subscribe.lua start $cfgids cron > /dev/null 2>&1 &" >>/etc/crontabs/root
-			fi
-		done
-		rm -rf $TMP_SUB_PATH
-	}
-
-	if [ "$ENABLED_DEFAULT_ACL" == 1 ] || [ "$ENABLED" == 1 ]; then
-		[ "$update_loop" = "1" ] && {
-			$APP_PATH/tasks.sh 9>&- > /dev/null 2>&1 &
-			echo $! >> "$STATE_PATH/pids"
-			echolog "自动更新：启动循环更新进程。"
-		}
+	if cmp -s "$file" /etc/crontabs/root; then
+		rm -f "$file"
 	else
-		echolog "运行于非代理模式，仅允许服务启停的定时任务。"
+		cat "$file" > /etc/crontabs/root || return 1
+		rm -f "$file"
+		/etc/init.d/cron restart 9>&- || return 1
 	fi
-
-	/etc/init.d/cron restart
-}
-
-stop_crontab() {
-	[ -f "/tmp/lock/${CONFIG}_cron.lock" ] && return
-	clean_crontab
-	/etc/init.d/cron restart
-	#echolog "清除定时执行命令。"
 }
 
 start_dns() {
@@ -1171,7 +1108,7 @@ start_dns() {
 			china_ng_local_dns="tcp://${DIRECT_DNS}"
 			sing_box_local_dns="direct_dns_tcp_server=${DIRECT_DNS}"
 			IPT_APPEND_DNS="${LOCAL_DNS},${DIRECT_DNS}"
-			ln_run "$(first_type dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(get_first_dns DIRECT_DNS 53)" -v
+			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(get_first_dns DIRECT_DNS 53)" -v
 			echolog "  - dns2tcp(${LOCAL_DNS}) -> tcp://$(get_first_dns DIRECT_DNS 53 | sed 's/#/:/g')"
 			echolog "  * 请确保上游直连 DNS 支持 TCP 查询。"
 		;;
@@ -1182,7 +1119,7 @@ start_dns() {
 				dns_listen_port=$(expr $dns_listen_port + 1)
 				local DIRECT_DNS=$(config_t_get global direct_dns_dot "tls://dot.pub@1.12.12.12")
 				china_ng_local_dns=${DIRECT_DNS}
-				ln_run "$(first_type chinadns-ng)" chinadns-ng "/dev/null" -b 127.0.0.1 -l ${cdns_listen_port} -c ${DIRECT_DNS} -d chn
+				ln_run "$(binary_path chinadns-ng)" chinadns-ng "/dev/null" -b 127.0.0.1 -l ${cdns_listen_port} -c ${DIRECT_DNS} -d chn
 				echolog "  - ChinaDNS-NG(${LOCAL_DNS}) -> ${DIRECT_DNS}"
 				echolog "  * 请确保上游直连 DNS 支持 DoT 查询。"
 
@@ -1278,7 +1215,7 @@ start_dns() {
 	;;
 	udp)
 		use_udp_node_resolve_dns=1
-		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(first_type chinadns-ng)" ]; then
+		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ]; then
 			local china_ng_listen_port=${dns_listen_port}
 			local china_ng_trust_dns="udp://$(get_first_dns REMOTE_DNS 53 | sed 's/:/#/g')"
 		else
@@ -1288,11 +1225,11 @@ start_dns() {
 	;;
 	*)
 		use_tcp_node_resolve_dns=1
-		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(first_type chinadns-ng)" ]; then
+		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ]; then
 			local china_ng_listen_port=${dns_listen_port}
 			local china_ng_trust_dns="tcp://$(get_first_dns REMOTE_DNS 53 | sed 's/:/#/g')"
 		else
-			ln_run "$(first_type dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(get_first_dns REMOTE_DNS 53)" -v
+			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(get_first_dns REMOTE_DNS 53)" -v
 			echolog "  - dns2tcp(${TUN_DNS}) -> tcp://$(get_first_dns REMOTE_DNS 53 | sed 's/#/:/g')"
 		fi
 	;;
@@ -1303,7 +1240,7 @@ start_dns() {
 	[ "${use_tcp_node_resolve_dns}" = "1" ] && echolog "  * 请确认上游 DNS 支持 TCP 查询，如非直连地址，确保 TCP 代理打开，并且已经正确转发！"
 	[ "${use_udp_node_resolve_dns}" = "1" ] && echolog "  * 请确认上游 DNS 支持 UDP 查询并已使用 UDP 节点，如上游 DNS 非直连地址，确保 UDP 代理打开，并且已经正确转发！"
 
-	[ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(first_type chinadns-ng)" ] && {
+	[ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ] && {
 		chinadns_ng_min=2024.04.13
 		chinadns_ng_now=$(chinadns-ng -V | grep -i "ChinaDNS-NG " | awk '{print $2}')
 		if [ $(check_ver "$chinadns_ng_now" "$chinadns_ng_min") = 1 ]; then
@@ -1634,6 +1571,7 @@ app_reload() {
 		return 1
 	fi
 	app_runtime_save
+	app_crontab 1 || return 1
 	rm -rf "$work"
 	echolog "nftables 热更新完成（$reason）。"
 }
@@ -1724,7 +1662,8 @@ app_start() {
 	app_core_signature > "$STATE_PATH/core.sha256"
 	nft_include
 	touch "$STATE_PATH/running"
-	start_crontab
+	app_monitor_start
+	app_crontab 1
 	rm -rf "$work"
 	echolog "Passwall 启动完成。"
 }
@@ -1736,7 +1675,7 @@ app_stop() {
 	[ -z "$FWI" ] || printf '#!/bin/sh\n' > "$FWI"
 	delete_ip2route
 	app_processes_stop || return 1
-	stop_crontab
+	app_crontab 0 || return 1
 	local dns_removed=0
 	if [ -e /tmp/dnsmasq.d/dnsmasq-passwall.conf ]; then
 		rm -f /tmp/dnsmasq.d/dnsmasq-passwall.conf "$DNSMASQ_PATH/dnsmasq-passwall.conf"
@@ -1784,7 +1723,7 @@ UDP_PROXY_MODE=$(config_t_get global udp_proxy_mode proxy)
 [ "${UDP_PROXY_MODE}" != "disable" ] && UDP_PROXY_MODE="proxy"
 LOCALHOST_PROXY=$(config_t_get global localhost_proxy 0)
 DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
-[ -z "$(first_type $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
+[ -z "$(binary_path $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
 DNS_MODE=$(config_t_get global dns_mode tcp)
 DNS_CACHE=0
 REMOTE_DNS=$(config_t_get global remote_dns 1.1.1.1:53 | sed 's/#/:/g' | sed -E 's/\:([^:]+)$/#\1/g')
@@ -1808,7 +1747,7 @@ DNS_QUERY_STRATEGY="UseIP"
 [ "$FILTER_PROXY_IPV6" = "1" ] && DNS_QUERY_STRATEGY="UseIPv4"
 DNSMASQ_FILTER_PROXY_IPV6=${FILTER_PROXY_IPV6}
 
-export V2RAY_LOCATION_ASSET=$(config_t_get global_rules v2ray_location_asset "/usr/share/v2ray/")
+export V2RAY_LOCATION_ASSET=/usr/share/v2ray/
 export XRAY_LOCATION_ASSET=$V2RAY_LOCATION_ASSET
 mkdir -p "$STATE_PATH" /tmp/etc $TMP_PATH $TMP_BIN_PATH $TMP_SCRIPT_FUNC_PATH $TMP_ID_PATH $TMP_ROUTE_PATH $TMP_ACL_PATH $TMP_IFACE_PATH $TMP_PATH2
 

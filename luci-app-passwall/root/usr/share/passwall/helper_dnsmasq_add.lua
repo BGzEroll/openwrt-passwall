@@ -353,6 +353,9 @@ if not fs.access(CACHE_DNS_PATH) then
 		local t = uci:get_all(appname, TCP_NODE)
 		local default_node_id = t["default_node"] or "_direct"
 		uci:foreach(appname, "shunt_rules", function(s)
+			if not api.is_supported_shunt_rule(s) then
+				return
+			end
 			local _node_id = t[s[".name"]] or "nil"
 			if _node_id ~= "nil" and _node_id ~= "_blackhole" then
 				if _node_id == "_default" then
@@ -382,7 +385,7 @@ if not fs.access(CACHE_DNS_PATH) then
 
 				local domain_list = s.domain_list or ""
 				for line in string.gmatch(domain_list, "[^\r\n]+") do
-					if line ~= "" and not line:find("#") and not line:find("regexp:") and not line:find("geosite:") and not line:find("ext:") then
+					if line ~= "" and not line:find("#") and not line:find("regexp:") then
 						if line:find("domain:") or line:find("full:") then
 							line = string.match(line, ":([^:]+)$")
 						end

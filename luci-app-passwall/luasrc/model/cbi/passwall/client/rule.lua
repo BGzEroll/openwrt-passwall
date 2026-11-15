@@ -44,7 +44,6 @@ o.rmempty = false
 
 ---- Week Update
 o = s:option(ListValue, "week_update", translate("Update Mode"))
-o:value(8, translate("Loop Mode"))
 o:value(7, translate("Every day"))
 o:value(1, translate("Every Monday"))
 o:value(2, translate("Every Tuesday"))
@@ -71,18 +70,7 @@ o:depends("week_update", "6")
 o:depends("week_update", "7")
 o.rmempty = true
 
----- Interval Update
-o = s:option(ListValue, "interval_update", translate("Update Interval(hour)"))
-for t = 1, 24 do o:value(t, t .. " " .. translate("hour")) end
-o.default = 2
-o:depends("week_update", "8")
-o.rmempty = true
-
 if has_xray or has_singbox then
-	o = s:option(Value, "v2ray_location_asset", translate("Location of V2ray/Xray asset"), translate("This variable specifies a directory where geoip.dat and geosite.dat files are."))
-	o.default = "/usr/share/v2ray/"
-	o.rmempty = false
-
 	s = m:section(TypedSection, "shunt_rules", "Sing-Box/Xray " .. translate("Shunt Rule"), "<a style='color: red'>" .. translate("Please note attention to the priority, the higher the order, the higher the priority.") .. "</a>")
 	s.template = "cbi/tblsection"
 	s.anonymous = false

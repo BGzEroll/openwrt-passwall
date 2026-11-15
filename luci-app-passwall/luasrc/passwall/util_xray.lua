@@ -641,6 +641,9 @@ function gen_config(var)
 			local default_outbound_tag, default_balancer_tag = gen_shunt_node("default", default_node_id)
 			--shunt rule
 			uci:foreach(appname, "shunt_rules", function(e)
+				if not api.is_supported_shunt_rule(e) then
+					return
+				end
 				local outbound_tag, balancer_tag = gen_shunt_node(e[".name"])
 				if outbound_tag or balancer_tag and e.remarks then
 					if outbound_tag == "default" then

@@ -19,7 +19,6 @@ PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_SingBox \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Trojan_Plus \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_tuic_client \
-	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geodata \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Plugin \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Xray \
 	CONFIG_PACKAGE_$(PKG_NAME)_INCLUDE_Xray_Plugin
@@ -86,12 +85,6 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_tuic_client
 	select PACKAGE_tuic-client
 	default n
 
-config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Geodata
-	bool "Include V2ray_Geodata"
-	select PACKAGE_v2ray-geoip
-	select PACKAGE_v2ray-geosite
-	default n
-
 config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Plugin
 	bool "Include V2ray-Plugin (Shadowsocks Plugin)"
 	select PACKAGE_v2ray-plugin
@@ -100,7 +93,6 @@ config PACKAGE_$(PKG_NAME)_INCLUDE_V2ray_Plugin
 config PACKAGE_$(PKG_NAME)_INCLUDE_Xray
 	bool "Include Xray"
 	select PACKAGE_xray-core
-	select PACKAGE_unzip
 	default y if aarch64||arm||i386||x86_64
 
 config PACKAGE_$(PKG_NAME)_INCLUDE_Xray_Plugin

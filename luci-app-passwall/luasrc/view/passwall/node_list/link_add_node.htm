@@ -83,7 +83,6 @@ local api = require "luci.passwall.api"
 		<label class="cbi-value-title"><%:Share Link%></label>
 		<div class="cbi-value-field">
 			<p><textarea id="nodes_link" rows="5" cols="50"></textarea></p>
-			<font color="red"><%:Not a subscription link!!!%></font>
 		</div>
 	</div>
 	<div class="cbi-value">
@@ -105,6 +104,5 @@ local api = require "luci.passwall.api"
 		<input class="btn cbi-button cbi-button-apply" type="submit" name="cbi.apply" value="<%:Save & Apply%>" />
 		<input class="btn cbi-button cbi-button-save" type="submit" name="cbi.save" value="<%:Save%>" />
 		<input class="btn cbi-button cbi-button-reset" type="button" value="<%:Reset%>" onclick="location.href='<%=REQUEST_URI%>'" />
-		<div id="div_node_count"></div>
 	</div>
 </div>

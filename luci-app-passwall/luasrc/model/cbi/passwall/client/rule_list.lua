@@ -7,6 +7,7 @@ local path = string.format("/usr/share/%s/rules/", appname)
 local gfwlist_path = "/usr/share/passwall/rules/gfwlist"
 local chnlist_path = "/usr/share/passwall/rules/chnlist"
 local chnroute_path = "/usr/share/passwall/rules/chnroute"
+local chnroute6_path = "/usr/share/passwall/rules/chnroute6"
 
 m = Map(appname)
 
@@ -294,7 +295,7 @@ if api.fs.access(chnlist_path) then
 end
 
 if api.fs.access(chnroute_path) then
-	s:tab("chnroute_list", translate("China List") .. "(IP)")
+	s:tab("chnroute_list", translate("China List") .. "(IPv4)")
 	o = s:taboption("chnroute_list", TextValue, "chnroute_list", "")
 	o.readonly = true
 	o.rows = 45
@@ -304,9 +305,19 @@ if api.fs.access(chnroute_path) then
 	end
 end
 
+if api.fs.access(chnroute6_path) then
+	s:tab("chnroute6_list", translate("China List") .. "(IPv6)")
+	o = s:taboption("chnroute6_list", TextValue, "chnroute6_list", "")
+	o.readonly = true
+	o.rows = 45
+	o.wrap = "off"
+	o.cfgvalue = function(self, section)
+		return fs.readfile(chnroute6_path) or ""
+	end
+end
+
 m:append(Template(appname .. "/rule_list/js"))
 
-m.apply_on_parse = true
 m.apply_on_parse = true
 function m.on_apply(self)
 	sys.call("/etc/init.d/passwall reload rules > /dev/null 2>&1 &")

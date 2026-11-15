@@ -24,7 +24,6 @@ config global
 	option trojan_loglevel '4'
 
 config global_delay
-	option start_daemon '1'
 	option start_delay '60'
 
 config global_forwarding
@@ -42,10 +41,6 @@ config global_xray
 
 config global_singbox
 	option sniff_override_destination '0'
-	option geoip_path '/usr/share/singbox/geoip.db'
-	option geoip_url 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.db'
-	option geosite_path '/usr/share/singbox/geosite.db'
-	option geosite_url 'https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.db'
 
 config global_other
 	option auto_detection_time '0'
@@ -57,8 +52,6 @@ config global_rules
 	option chnroute_update '1'
 	option chnroute6_update '1'
 	option gfwlist_update '0'
-	option geosite_update '0'
-	option geoip_update '0'
 	option week_update '4'
 	option time_update '6'
 	list gfwlist_url 'https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt'
@@ -68,13 +61,3 @@ config global_rules
 	list chnroute6_url 'https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt'
 	list chnlist_url 'https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/accelerated-domains.china.conf'
 	list chnlist_url 'https://fastly.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/apple.china.conf'
-	option v2ray_location_asset '/usr/share/v2ray/'
-
-config global_app
-	option singbox_file '/usr/bin/sing-box'
-	option xray_file '/usr/bin/xray'
-	option hysteria_file '/usr/bin/hysteria'
-	option chinadns_ng '/usr/bin/chinadns-ng'
-
-config global_subscribe
-	option filter_keyword_mode '1'

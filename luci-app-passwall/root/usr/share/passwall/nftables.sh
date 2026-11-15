@@ -156,6 +156,11 @@ setup_sets() {
 	local shunt_id shunt_ids
 	shunt_ids=$(uci show "$CONFIG" | grep '=shunt_rules' | cut -d. -f2 | cut -d= -f1)
 	for shunt_id in $shunt_ids; do
+		# Old Geo rules must be skipped as a whole, matching the core and DNS generators.
+		if { config_n_get "$shunt_id" source | tr " " "\n"; config_n_get "$shunt_id" domain_list; config_n_get "$shunt_id" ip_list; } |
+			grep -Eq '^[[:space:]]*(geoip|geosite|ext):'; then
+			continue
+		fi
 		insert_nftset "$NFTSET_SHUNTLIST" -1 $(config_n_get "$shunt_id" ip_list | tr -s '\r\n' '\n' | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}')
 		insert_nftset "$NFTSET_SHUNTLIST6" -1 $(config_n_get "$shunt_id" ip_list | tr -s '\r\n' '\n' | grep -E ':')
 	done

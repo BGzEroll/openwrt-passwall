@@ -425,16 +425,6 @@ function gen_config(var)
 
 	local route = {
 		rules = {},
-		geoip = {
-			path = singbox_settings.geoip_path or "/usr/share/singbox/geoip.db",
-			download_url = singbox_settings.geoip_url or nil,
-			download_detour = nil,
-		},
-		geosite = {
-			path = singbox_settings.geosite_path or "/usr/share/singbox/geosite.db",
-			download_url = singbox_settings.geosite_url or nil,
-			download_detour = nil,
-		},
 	}
 
 	local experimental = nil
@@ -659,6 +649,9 @@ function gen_config(var)
 			local default_outboundTag = gen_shunt_node("default", default_node_id)
 			--shunt rule
 			uci:foreach(appname, "shunt_rules", function(e)
+				if not api.is_supported_shunt_rule(e) then
+					return
+				end
 				local outboundTag = gen_shunt_node(e[".name"])
 				if outboundTag and e.remarks then
 					if outboundTag == "default" then
@@ -706,16 +699,10 @@ function gen_config(var)
 					end
 
 					if e.source then
-						local source_geoip = {}
 						local source_ip_cidr = {}
 						string.gsub(e.source, '[^' .. " " .. ']+', function(w)
-							if w:find("geoip") == 1 then
-								table.insert(source_geoip, w)
-							else
-								table.insert(source_ip_cidr, w)
-							end
+							table.insert(source_ip_cidr, w)
 						end)
-						rule.source_geoip = #source_geoip > 0 and source_geoip or nil
 						rule.source_ip_cidr = #source_ip_cidr > 0 and source_ip_cidr or nil
 					end
 
@@ -754,13 +741,10 @@ function gen_config(var)
 							domain_suffix = {},
 							domain_keyword = {},
 							domain_regex = {},
-							geosite = {},
 						}
 						string.gsub(e.domain_list, '[^' .. "\r\n" .. ']+', function(w)
 							if w:find("#") == 1 then return end
-							if w:find("geosite:") == 1 then
-								table.insert(domain_table.geosite, w:sub(1 + #"geosite:"))
-							elseif w:find("regexp:") == 1 then
+							if w:find("regexp:") == 1 then
 								table.insert(domain_table.domain_regex, w:sub(1 + #"regexp:"))
 							elseif w:find("full:") == 1 then
 								table.insert(domain_table.domain, w:sub(1 + #"full:"))
@@ -774,7 +758,6 @@ function gen_config(var)
 						rule.domain_suffix = #domain_table.domain_suffix > 0 and domain_table.domain_suffix or nil
 						rule.domain_keyword = #domain_table.domain_keyword > 0 and domain_table.domain_keyword or nil
 						rule.domain_regex = #domain_table.domain_regex > 0 and domain_table.domain_regex or nil
-						rule.geosite = #domain_table.geosite > 0 and domain_table.geosite or nil
 
 						if outboundTag and outboundTag ~= "nil" then
 							table.insert(dns_domain_rules, api.clone(domain_table))
@@ -783,18 +766,12 @@ function gen_config(var)
 
 					if e.ip_list then
 						local ip_cidr = {}
-						local geoip = {}
 						string.gsub(e.ip_list, '[^' .. "\r\n" .. ']+', function(w)
 							if w:find("#") == 1 then return end
-							if w:find("geoip:") == 1 then
-								table.insert(geoip, w:sub(1 + #"geoip:"))
-							else
-								table.insert(ip_cidr, w)
-							end
+							table.insert(ip_cidr, w)
 						end)
 
 						rule.ip_cidr = #ip_cidr > 0 and ip_cidr or nil
-						rule.geoip = #geoip > 0 and geoip or nil
 					end
 
 					table.insert(rules, rule)
@@ -985,14 +962,13 @@ function gen_config(var)
 		--按分流顺序DNS
 		if dns_domain_rules and #dns_domain_rules > 0 then
 			for index, value in ipairs(dns_domain_rules) do
-				if value.outboundTag and (value.domain or value.domain_suffix or value.domain_keyword or value.domain_regex or value.geosite) then
+				if value.outboundTag and (value.domain or value.domain_suffix or value.domain_keyword or value.domain_regex) then
 					local dns_rule = {
 						server = value.outboundTag,
 						domain = (value.domain and #value.domain > 0) and value.domain or nil,
 						domain_suffix = (value.domain_suffix and #value.domain_suffix > 0) and value.domain_suffix or nil,
 						domain_keyword = (value.domain_keyword and #value.domain_keyword > 0) and value.domain_keyword or nil,
 						domain_regex = (value.domain_regex and #value.domain_regex > 0) and value.domain_regex or nil,
-						geosite = (value.geosite and #value.geosite > 0) and value.geosite or nil,
 						disable_cache = false,
 					}
 					if value.outboundTag ~= "block" and value.outboundTag ~= "direct" then

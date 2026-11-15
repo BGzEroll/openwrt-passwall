@@ -31,7 +31,6 @@ source = s:option(DynamicList, "source", translate("Source"))
 source.description = "<ul><li>" .. translate("Example:")
 .. "</li><li>" .. translate("IP") .. ": 192.168.1.100"
 .. "</li><li>" .. translate("IP CIDR") .. ": 192.168.1.0/24"
-.. "</li><li>" .. translate("GeoIP") .. ": geoip:private"
 .. "</li></ul>"
 source.cast = "string"
 source.cfgvalue = function(self, section)
@@ -53,10 +52,6 @@ source.validate = function(self, value, t)
 	for _, v in ipairs(value) do
 		local flag = false
 		if datatypes.ip4addr(v) then
-			flag = true
-		end
-
-		if flag == false and v:find("geoip:") and v:find("geoip:") == 1 then
 			flag = true
 		end
 
@@ -116,10 +111,6 @@ domain_list.validate = function(self, value)
 			tmp_host = host:gsub("domain:", "")
 		elseif host:find("full:.") and host:find("full:.") == 1 then
 			tmp_host = host:gsub("full:", "")
-		elseif host:find("geosite:") and host:find("geosite:") == 1 then
-			flag = 0
-		elseif host:find("ext:") and host:find("ext:") == 1 then
-			flag = 0
 		elseif host:find("#") and host:find("#") == 1 then
 			flag = 0
 		end
@@ -135,7 +126,6 @@ domain_list.description = "<br /><ul><li>" .. translate("Plaintext: If this stri
 .. "</li><li>" .. translate("Regular expression: Begining with 'regexp:', the rest is a regular expression. When the regexp matches targeting domain, this rule takes effect. Example: rule 'regexp:\\.goo.*\\.com$' matches 'www.google.com' and 'fonts.googleapis.com', but not 'google.com'.")
 .. "</li><li>" .. translate("Subdomain (recommended): Begining with 'domain:' and the rest is a domain. When the targeting domain is exactly the value, or is a subdomain of the value, this rule takes effect. Example: rule 'domain:v2ray.com' matches 'www.v2ray.com', 'v2ray.com', but not 'xv2ray.com'.")
 .. "</li><li>" .. translate("Full domain: Begining with 'full:' and the rest is a domain. When the targeting domain is exactly the value, the rule takes effect. Example: rule 'domain:v2ray.com' matches 'v2ray.com', but not 'www.v2ray.com'.")
-.. "</li><li>" .. translate("Pre-defined domain list: Begining with 'geosite:' and the rest is a name, such as geosite:google or geosite:cn.")
 .. "</li><li>" .. translate("Annotation: Begining with #")
 .. "</li></ul>"
 ip_list = s:option(TextValue, "ip_list", "IP")
@@ -146,9 +136,7 @@ ip_list.validate = function(self, value)
 	value = value:gsub("^%s+", ""):gsub("%s+$","\n"):gsub("\r\n","\n"):gsub("[ \t]*\n[ \t]*", "\n")
 	string.gsub(value, "[^\r\n]+", function(w) table.insert(ipmasks, w) end)
 	for index, ipmask in ipairs(ipmasks) do
-		if ipmask:find("geoip:") and ipmask:find("geoip:") == 1 and not ipmask:find("%s") then
-		elseif ipmask:find("ext:") and ipmask:find("ext:") == 1 and not ipmask:find("%s") then
-		elseif ipmask:find("#") and ipmask:find("#") == 1 then
+		if ipmask:find("#") and ipmask:find("#") == 1 then
 		else
 			if not (datatypes.ipmask4(ipmask) or datatypes.ipmask6(ipmask)) then
 				return nil, ipmask .. " " .. translate("Not valid IP format, please re-enter!")
@@ -159,7 +147,6 @@ ip_list.validate = function(self, value)
 end
 ip_list.description = "<br /><ul><li>" .. translate("IP: such as '127.0.0.1'.")
 .. "</li><li>" .. translate("CIDR: such as '127.0.0.0/8'.")
-.. "</li><li>" .. translate("GeoIP: such as 'geoip:cn'. It begins with geoip: (lower case) and followed by two letter of country code.")
 .. "</li><li>" .. translate("Annotation: Begining with #")
 .. "</li></ul>"
 
