@@ -1,61 +1,205 @@
 <%
 local api = require "luci.passwall.api"
-
-local gfwlist_update = api.uci_get_type("global_rules", "gfwlist_update", "0") == "1" and "checked='checked'" or ""
-local chnroute_update = api.uci_get_type("global_rules", "chnroute_update", "1") == "1" and "checked='checked'" or ""
-local chnroute6_update = api.uci_get_type("global_rules", "chnroute6_update", "1") == "1" and "checked='checked'" or ""
 -%>
+<div class="cbi-value" id="rule_update_actions">
+	<label class="cbi-value-title"><%:手动更新%></label>
+	<div class="cbi-value-field">
+		<label style="margin-inline-end:0.5em">
+			<input class="cbi-input-checkbox" type="checkbox" value="gfwlist" />
+			GFW
+		</label>
+		<label style="margin-inline-end:0.5em">
+			<input class="cbi-input-checkbox" type="checkbox" value="chnroute" checked="checked" />
+			中国 IPv4
+		</label>
+		<label style="margin-inline-end:0.5em">
+			<input class="cbi-input-checkbox" type="checkbox" value="chnroute6" checked="checked" />
+			中国 IPv6
+		</label>
+		<input class="btn cbi-button cbi-button-apply" type="button" data-rule-update-start="1" value="<%:立即更新%>" />
+		<div data-rule-update-status role="status" aria-live="polite"><%:打开更新标签时检查任务状态。%></div>
+		<div class="cbi-value-description"><%:使用已保存的规则地址；本次选择仅影响手动更新，不修改定时更新设置。%></div>
+	</div>
+</div>
 
 <script type="text/javascript">
 	//<![CDATA[
-	function update_rules(btn) {
-		btn.disabled = true;
-		btn.value = '<%:Updating...%>';
-		var div = document.getElementById('_rule_div');
-		var domList = div.getElementsByTagName('input');
-		var checkBoxList = [];
-		var len = domList.length;
-		while(len--) {
-			var dom = domList[len];　　
-			if(dom.type == 'checkbox' && dom.checked) {　　
-				checkBoxList.push(dom.name);　　
+	(function() {
+		var root = document.getElementById("rule_update_actions");
+		if (!root)
+			return;
+
+		var updateUrl = '<%=api.url("update_rules")%>';
+		var statusUrl = '<%=api.url("get_rule_update_status")%>';
+		var button = root.querySelector("[data-rule-update-start]");
+		var statusNode = root.querySelector("[data-rule-update-status]");
+		var checkboxes = root.querySelectorAll('input[type="checkbox"]');
+		var pollTimer = null;
+		var statusRequest = false;
+		var startRequest = false;
+		var running = false;
+		var statusFailures = 0;
+		var completedAt = null;
+		var statusEpoch = 0;
+
+		function parseResponse(xhr, data) {
+			if (data && typeof data === "object")
+				return data;
+			try {
+				return JSON.parse(typeof data === "string" ? data : xhr.responseText);
+			} catch (e) {
+				return null;
 			}
 		}
-		XHR.get('<%=api.url("update_rules")%>', {
-				update: checkBoxList.join(",")
-			},
-			function(x, data) {
-				if(x && x.status == 200) {
-					window.location.href = '<%=api.url("log")%>';
-				} else {
-					alert("<%:Error%>");
-					btn.disabled = false;
-					btn.value = '<%:Manually update%>';
-				}
+
+		function formatTimestamp(value) {
+			var timestamp = Number(value);
+			if (value != null && value !== "" && isFinite(timestamp)) {
+				var date = new Date(timestamp * 1000);
+				if (!isNaN(date.getTime()))
+					return date.toLocaleString();
 			}
-		);
-	}
+			return String(value);
+		}
+
+		function setControls() {
+			var disabled = running || startRequest;
+			button.disabled = disabled;
+			button.value = startRequest ? "<%:提交中…%>" : (running ? "<%:更新中…%>" : "<%:立即更新%>");
+			for (var i = 0; i < checkboxes.length; i++)
+				checkboxes[i].disabled = running || startRequest;
+		}
+
+		function stopPolling() {
+			if (pollTimer !== null) {
+				window.clearTimeout(pollTimer);
+				pollTimer = null;
+			}
+		}
+
+		function schedulePoll() {
+			if (pollTimer === null && running)
+				pollTimer = window.setTimeout(function() {
+					pollTimer = null;
+					fetchStatus();
+				}, 1500);
+		}
+
+		function showState(result) {
+			if (!result || !result.state) {
+				statusNode.textContent = "<%:无法识别更新状态%>";
+				return;
+			}
+
+			var state = result.state;
+			if (state === "done" && result.finished_at !== completedAt) {
+				completedAt = result.finished_at;
+				document.dispatchEvent(new CustomEvent('passwall-rules-updated'));
+			}
+			var message = result.message ? String(result.message) : "";
+			var label;
+			running = state === "downloading" || state === "applying";
+			if (running) {
+				label = state === "downloading" ? "<%:正在下载规则%>" : "<%:正在应用规则%>";
+			} else if (state === "done") {
+				label = "<%:规则更新完成%>";
+			} else if (state === "failed") {
+				label = "<%:规则更新失败%>";
+			} else if (state === "idle") {
+				label = "<%:当前没有正在运行的更新任务%>";
+			} else {
+				label = "<%:无法识别更新状态%>";
+			}
+
+			var details = [message || label];
+			if (!running && result.finished_at)
+				details.push("<%:结束时间%>：" + formatTimestamp(result.finished_at));
+			statusNode.textContent = details.join("；");
+			setControls();
+			if (running)
+				schedulePoll();
+			else
+				stopPolling();
+		}
+
+		function fetchStatus() {
+			if (statusRequest)
+				return;
+
+			statusRequest = true;
+			var epoch = statusEpoch;
+			XHR.get(statusUrl, null, function(xhr, data) {
+				statusRequest = false;
+				if (epoch !== statusEpoch) {
+					if (running) schedulePoll();
+					return;
+				}
+				var result = parseResponse(xhr, data);
+				if (!xhr || xhr.status !== 200 || !result || !result.state) {
+					statusFailures++;
+					statusNode.textContent = "<%:读取更新状态失败%>";
+					if (running && statusFailures < 4)
+						schedulePoll();
+					else if (running) {
+						running = false;
+						setControls();
+					}
+					return;
+				}
+
+				statusFailures = 0;
+				showState(result);
+			});
+		}
+
+		button.onclick = function() {
+			if (running || startRequest)
+				return;
+
+			var selected = [];
+			for (var i = 0; i < checkboxes.length; i++) {
+				if (checkboxes[i].checked)
+					selected.push(checkboxes[i].value);
+			}
+			if (selected.length === 0) {
+				statusNode.textContent = "<%:请先选择规则%>";
+				return;
+			}
+
+			startRequest = true;
+			statusEpoch++;
+			setControls();
+			statusNode.textContent = "<%:正在提交更新任务…%>";
+			XHR.get(updateUrl, { update: selected.join(",") }, function(xhr, data) {
+				startRequest = false;
+				var result = parseResponse(xhr, data);
+				if (result && result.state && xhr && (xhr.status === 200 || xhr.status === 409)) {
+					showState(result);
+					return;
+				}
+
+				statusNode.textContent = "<%:提交失败，正在确认任务状态…%>";
+				running = true;
+				setControls();
+				fetchStatus();
+			});
+		};
+
+		function findUpdatePane(node) {
+			while (node && node !== document) {
+				if (node.getAttribute && node.getAttribute("data-tab") === "update" && node.hasAttribute("data-tab-title"))
+					return node;
+				node = node.parentNode;
+			}
+			return null;
+		}
+
+		var pane = findUpdatePane(root);
+		if (pane) {
+			pane.addEventListener("cbi-tab-active", fetchStatus);
+			if (pane.getAttribute("data-tab-active") === "true")
+				fetchStatus();
+		}
+	})();
 	//]]>
 </script>
-<div class="cbi-value" id="_rule_div">
-	<label class="cbi-value-title">
-		<%:Manually update%>
-	</label>
-	<div class="cbi-value-field">
-		<div>
-			<label>
-				<input class="cbi-input-checkbox" type="checkbox" name="gfwlist" value="1" <%=gfwlist_update%> />
-				gfwlist
-			</label>
-			<label>
-				<input class="cbi-input-checkbox" type="checkbox" name="chnroute" value="1" <%=chnroute_update%> />
-				chnroute
-			</label>
-			<label>
-				<input class="cbi-input-checkbox" type="checkbox" name="chnroute6" value="1" <%=chnroute6_update%> />
-				chnroute6
-			</label>
-			<input class="btn cbi-button cbi-button-apply" type="button" id="update_rules_btn" onclick="update_rules(this)" value="<%:Manually update%>" />
-		</div>
-	</div>
-</div>

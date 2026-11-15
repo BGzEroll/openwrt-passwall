@@ -2,14 +2,8 @@ local m, s = ...
 
 local api = require "luci.passwall.api"
 
-if not api.finded_com("xray") then
-	return
-end
-
 local appname = "passwall"
 local uci = api.uci
-
-local type_name = "Xray"
 
 local option_prefix = "xray_"
 
@@ -30,13 +24,11 @@ local header_type_list = {
 local xray_version = api.get_app_version("xray")
 -- [[ Xray ]]
 
-s.fields["type"]:value(type_name, "Xray")
-
 o = s:option(ListValue, option_name("protocol"), translate("Protocol"))
-o:value("vmess", translate("Vmess"))
+o:value("vmess", "VMess")
 o:value("vless", translate("VLESS"))
 o:value("http", translate("HTTP"))
-o:value("socks", translate("Socks"))
+o:value("socks", "SOCKS")
 o:value("shadowsocks", translate("Shadowsocks"))
 o:value("trojan", translate("Trojan"))
 o:value("wireguard", translate("WireGuard"))
@@ -85,7 +77,7 @@ for k, e in ipairs(api.get_valid_nodes()) do
 end
 
 -- 负载均衡列表
-local o = s:option(DynamicList, option_name("balancing_node"), translate("Load balancing node list"), translate("Load balancing node list, <a target='_blank' href='https://toutyrater.github.io/routing/balance2.html'>document</a>"))
+local o = s:option(DynamicList, option_name("balancing_node"), translate("均衡节点"))
 o:depends({ [option_name("protocol")] = "_balancing" })
 for k, v in pairs(nodes_table) do o:value(v.id, v.remark) end
 
@@ -121,7 +113,7 @@ if api.compare_versions(xray_version, ">=", "1.8.10") then
 end
 
 -- 探测地址
-local ucpu = s:option(Flag, option_name("useCustomProbeUrl"), translate("Use Custome Probe URL"), translate("By default the built-in probe URL will be used, enable this option to use a custom probe URL."))
+local ucpu = s:option(Flag, option_name("useCustomProbeUrl"), translate("自定义探测地址"))
 ucpu:depends({ [option_name("balancingStrategy")] = "leastPing" })
 
 local pu = s:option(Value, option_name("probeUrl"), translate("Probe URL"))
@@ -133,13 +125,13 @@ pu:value("https://www.youtube.com/generate_204", "YouTube")
 pu:value("https://connect.rom.miui.com/generate_204", "MIUI (CN)")
 pu:value("https://connectivitycheck.platform.hicloud.com/generate_204", "HiCloud (CN)")
 pu.default = "https://www.google.com/generate_204"
-pu.description = translate("The URL used to detect the connection status.")
+
 
 -- 探测间隔
 local pi = s:option(Value, option_name("probeInterval"), translate("Probe Interval"))
 pi:depends({ [option_name("balancingStrategy")] = "leastPing" })
 pi.default = "1m"
-pi.description = translate("The interval between initiating probes. Every time this time elapses, a server status check is performed on a server. The time format is numbers + units, such as '10s', '2h45m', and the supported time units are <code>ns</code>, <code>us</code>, <code>ms</code>, <code>s</code>, <code>m</code>, <code>h</code>, which correspond to nanoseconds, microseconds, milliseconds, seconds, minutes, and hours, respectively.")
+pi.description = translate("例如 10s、1m、2h45m。")
 
 if api.compare_versions(xray_version, ">=", "1.8.12") then
 	ucpu:depends({ [option_name("protocol")] = "_balancing" })
@@ -155,7 +147,7 @@ if #nodes_table > 0 then
 	o = s:option(Flag, option_name("preproxy_enabled"), translate("Preproxy"))
 	o:depends({ [option_name("protocol")] = "_shunt" })
 
-	o = s:option(ListValue, option_name("main_node"), string.format('<a style="color:red">%s</a>', translate("Preproxy Node")), translate("Set the node to be used as a pre-proxy. Each rule (including <code>Default</code>) has a separate switch that controls whether this rule uses the pre-proxy or not."))
+	o = s:option(ListValue, option_name("main_node"), translate("前置代理节点"), translate("各分流规则可单独选择是否使用。"))
 	o:depends({ [option_name("protocol")] = "_shunt", [option_name("preproxy_enabled")] = true })
 	for k, v in pairs(balancers_table) do
 		o:value(v.id, v.remark)
@@ -216,7 +208,7 @@ if #nodes_table > 0 then
 	for k, v in pairs(iface_table) do
 		o:value(v.id, v.remark)
 	end
-	local dpt = s:option(ListValue, option_name("default_proxy_tag"), string.format('* <a style="color:red">%s</a>', translate("Default Preproxy")), translate("When using, localhost will connect this node first and then use this node to connect the default node."))
+	local dpt = s:option(ListValue, option_name("default_proxy_tag"), translate("默认前置代理"))
 	dpt:value("nil", translate("Close"))
 	dpt:value("main", translate("Preproxy Node"))
 	dpt.default = "nil"
@@ -231,10 +223,7 @@ o:value("AsIs")
 o:value("IPIfNonMatch")
 o:value("IPOnDemand")
 o.default = "IPOnDemand"
-o.description = "<br /><ul><li>" .. translate("'AsIs': Only use domain for routing. Default value.")
-	.. "</li><li>" .. translate("'IPIfNonMatch': When no rule matches current domain, resolves it into IP addresses (A or AAAA records) and try all rules again.")
-	.. "</li><li>" .. translate("'IPOnDemand': As long as there is a IP-based rule, resolves the domain into IP immediately.")
-	.. "</li></ul>"
+o.description = translate("AsIs：仅按域名；IPIfNonMatch：域名未命中后解析；IPOnDemand：需要 IP 规则时解析。")
 o:depends({ [option_name("protocol")] = "_shunt" })
 
 o = s:option(ListValue, option_name("domainMatcher"), translate("Domain matcher"))
@@ -313,7 +302,7 @@ o:depends({ [option_name("protocol")] = "socks" })
 o:depends({ [option_name("protocol")] = "trojan" })
 o:depends({ [option_name("protocol")] = "shadowsocks" })
 
-o = s:option(Flag, option_name("reality"), translate("REALITY"), translate("Only recommend to use with VLESS-TCP-XTLS-Vision."))
+o = s:option(Flag, option_name("reality"), "REALITY", translate("建议搭配 VLESS、TCP 和 XTLS Vision。"))
 o.default = 0
 o:depends({ [option_name("tls")] = true, [option_name("transport")] = "tcp" })
 o:depends({ [option_name("tls")] = true, [option_name("transport")] = "h2" })
@@ -338,7 +327,7 @@ o:depends({ [option_name("tls")] = true, [option_name("reality")] = false })
 o = s:option(Value, option_name("tls_serverName"), translate("Domain"))
 o:depends({ [option_name("tls")] = true })
 
-o = s:option(Flag, option_name("tls_allowInsecure"), translate("allowInsecure"), translate("Whether unsafe connections are allowed. When checked, Certificate validation will be skipped."))
+o = s:option(Flag, option_name("tls_allowInsecure"), translate("跳过证书验证"))
 o.default = "0"
 o:depends({ [option_name("tls")] = true, [option_name("reality")] = false })
 
@@ -405,7 +394,7 @@ o.default = "1420"
 o:depends({ [option_name("protocol")] = "wireguard" })
 
 if api.compare_versions(xray_version, ">=", "1.8.0") then
-	o = s:option(Value, option_name("wireguard_reserved"), translate("Reserved"), translate("Decimal numbers separated by \",\" or Base64-encoded strings."))
+	o = s:option(Value, option_name("wireguard_reserved"), "Reserved", translate("逗号分隔的十进制数字，或 Base64。"))
 	o:depends({ [option_name("protocol")] = "wireguard" })
 end
 
@@ -432,7 +421,7 @@ o:depends({ [option_name("tcp_guise")] = "http" })
 
 -- [[ mKCP部分 ]]--
 
-o = s:option(ListValue, option_name("mkcp_guise"), translate("Camouflage Type"), translate('<br />none: default, no masquerade, data sent is packets with no characteristics.<br />srtp: disguised as an SRTP packet, it will be recognized as video call data (such as FaceTime).<br />utp: packets disguised as uTP will be recognized as bittorrent downloaded data.<br />wechat-video: packets disguised as WeChat video calls.<br />dtls: disguised as DTLS 1.2 packet.<br />wireguard: disguised as a WireGuard packet. (not really WireGuard protocol)'))
+o = s:option(ListValue, option_name("mkcp_guise"), translate("伪装类型"))
 for a, t in ipairs(header_type_list) do o:value(t) end
 o:depends({ [option_name("transport")] = "mkcp" })
 
@@ -584,7 +573,7 @@ o.default = 0
 o = s:option(Flag, option_name("tcpNoDelay"), "tcpNoDelay")
 o.default = 0
 
-o = s:option(ListValue, option_name("to_node"), translate("Landing node"), translate("Only support a layer of proxy."))
+o = s:option(ListValue, option_name("to_node"), translate("落地节点"), translate("仅支持一层链式代理。"))
 o.default = ""
 o:value("", translate("Close(Not use)"))
 for k, v in pairs(nodes_table) do
@@ -601,4 +590,4 @@ for i, v in ipairs(s.fields[option_name("protocol")].keylist) do
 	end
 end
 
-api.luci_types(arg[1], m, s, type_name, option_prefix)
+api.xray_fields(m, s)

@@ -62,26 +62,7 @@ function gen_outbound(flag, node, tag, proxy_table)
 			end
 		end
 
-		if node.type ~= "Xray" then
-			local relay_port = node.port
-			new_port = get_new_port()
-			local config_file = string.format("%s_%s_%s.json", flag, tag, new_port)
-			if tag and node_id and tag ~= node_id then
-				config_file = string.format("%s_%s_%s_%s.json", flag, tag, node_id, new_port)
-			end
-			local args = {"flag=" .. new_port, "node=" .. node_id, "bind=127.0.0.1",
-				"socks_port=" .. new_port, "config_file=" .. config_file,
-				"relay_port=" .. ((proxy == 1 and relay_port) and tostring(relay_port) or "")}
-			for i, value in ipairs(args) do args[i] = api.util.shellquote(value) end
-			assert(sys.call("/usr/share/passwall/app.sh run_socks " .. table.concat(args, " ") .. " >/dev/null") == 0,
-				"Failed to generate relay core")
-			node = {}
-			node.protocol = "socks"
-			node.transport = "tcp"
-			node.address = "127.0.0.1"
-			node.port = new_port
-			node.stream_security = "none"
-		end
+		assert(node.type == "Xray", "只支持 Xray 节点：" .. tostring(node_id))
 
 		if node.type == "Xray" then
 			if node.tls and node.tls == "1" then
@@ -546,7 +527,7 @@ function gen_config(var)
 						return copied_outbound.tag, nil
 					end
 					--new outbound
-					if use_proxy and (_node.type ~= "Xray" or _node.flow == "xtls-rprx-vision") then
+					if use_proxy and _node.flow == "xtls-rprx-vision" then
 						new_port = get_new_port()
 						table.insert(inbounds, {
 							tag = "proxy_" .. rule_name,
@@ -1016,113 +997,7 @@ function gen_config(var)
 	end
 end
 
-function gen_proto_config(var)
-	local local_socks_address = var["-local_socks_address"] or "0.0.0.0"
-	local local_socks_port = var["-local_socks_port"]
-	local local_socks_username = var["-local_socks_username"]
-	local local_socks_password = var["-local_socks_password"]
-	local local_http_address = var["-local_http_address"] or "0.0.0.0"
-	local local_http_port = var["-local_http_port"]
-	local local_http_username = var["-local_http_username"]
-	local local_http_password = var["-local_http_password"]
-	local server_proto = var["-server_proto"]
-	local server_address = var["-server_address"]
-	local server_port = var["-server_port"]
-	local server_username = var["-server_username"]
-	local server_password = var["-server_password"]
-
-	local inbounds = {}
-	local outbounds = {}
-	local routing = nil
-
-	if local_socks_address and local_socks_port then
-		local inbound = {
-			listen = local_socks_address,
-			port = tonumber(local_socks_port),
-			protocol = "socks",
-			settings = {
-				udp = true,
-				auth = "noauth"
-			}
-		}
-		if local_socks_username and local_socks_password and local_socks_username ~= "" and local_socks_password ~= "" then
-			inbound.settings.auth = "password"
-			inbound.settings.accounts = {
-				{
-					user = local_socks_username,
-					pass = local_socks_password
-				}
-			}
-		end
-		table.insert(inbounds, inbound)
-	end
-
-	if local_http_address and local_http_port then
-		local inbound = {
-			listen = local_http_address,
-			port = tonumber(local_http_port),
-			protocol = "http",
-			settings = {
-				allowTransparent = false
-			}
-		}
-		if local_http_username and local_http_password and local_http_username ~= "" and local_http_password ~= "" then
-			inbound.settings.accounts = {
-				{
-					user = local_http_username,
-					pass = local_http_password
-				}
-			}
-		end
-		table.insert(inbounds, inbound)
-	end
-
-	if server_proto ~= "nil" and server_address ~= "nil" and server_port ~= "nil" then
-		local outbound = {
-			protocol = server_proto,
-			streamSettings = {
-				network = "tcp",
-				security = "none"
-			},
-			settings = {
-				servers = {
-					{
-						address = server_address,
-						port = tonumber(server_port),
-						users = (server_username and server_password) and {
-							{
-								user = server_username,
-								pass = server_password
-							}
-						} or nil
-					}
-				}
-			}
-		}
-		if outbound then table.insert(outbounds, outbound) end
-	end
-
-	-- 额外传出连接
-	table.insert(outbounds, {
-		protocol = "freedom", tag = "direct", settings = {keep = ""}, sockopt = {mark = 255}
-	})
-
-	local config = {
-		log = {
-			loglevel = "warning"
-		},
-		-- 传入连接
-		inbounds = inbounds,
-		-- 传出连接
-		outbounds = outbounds,
-		-- 路由
-		routing = routing
-	}
-	return jsonc.stringify(config, 1)
-end
-
 _G.gen_config = gen_config
-_G.gen_proto_config = gen_proto_config
 
 if arg[1] then
 	local func =_G[arg[1]]

@@ -7,6 +7,41 @@ local ucic = luci.model.uci.cursor()
 local datatypes = require "luci.cbi.datatypes"
 local name = 'passwall'
 local api = require ("luci.passwall.api")
+local fs, json = api.fs, api.jsonc
+local state_file = "/var/run/passwall/rule-update.json"
+local function job_read()
+	return json.parse(fs.readfile(state_file) or "") or {state="idle", message="尚未更新"}
+end
+local function job_write(state, message, fresh)
+	local job = fresh and {started_at=os.time()} or job_read()
+	job.state, job.message = state, message
+	if state == "done" or state == "failed" then job.finished_at = os.time() end
+	assert(fs.writefile(state_file .. ".next", json.stringify(job)), "更新状态写入失败")
+	assert(fs.rename(state_file .. ".next", state_file), "更新状态发布失败")
+	return job
+end
+local function active(job) return job.state == "downloading" or job.state == "applying" end
+local operation = arg[1]
+if operation == "prepare" then
+	print(json.stringify(job_write("downloading", "准备下载", true)))
+	os.exit(0)
+elseif operation == "status" or operation == "status-idle" or operation == "busy" or operation == "failed" then
+	local job = job_read()
+	if (operation == "status-idle" or operation == "failed") and active(job) then
+		local detail = fs.readfile("/var/run/passwall/rule-update.error") or ""
+		api.log_debug("规则", detail)
+		api.log("规则", detail:match("^[^\r\n]+") or "更新任务已中断")
+		job = job_write("failed", "更新任务异常结束，详情见日志")
+	elseif operation == "busy" and not active(job) then
+		job = {state="downloading", message="更新任务正在启动"}
+	end
+	print(json.stringify(job))
+	os.exit(0)
+end
+if os.getenv("PASSWALL_RULE_UPDATE_LOCKED") ~= "1" then
+	io.stderr:write("请通过 rule_update.sh 运行规则更新\n")
+	os.exit(2)
+end
 local arg1 = arg[1]
 local arg2 = arg[2]
 local arg3 = arg[3]
@@ -36,9 +71,9 @@ end
 local log = function(...)
 	if arg1 then
 		if arg1 == "log" then
-			api.log(...)
+			api.log("规则", ...)
 		elseif arg1 == "print" then
-			local result = os.date("%Y-%m-%d %H:%M:%S: ") .. table.concat({...}, " ")
+			local result = os.date("%Y-%m-%d %H:%M:%S [规则] ") .. table.concat({...}, " ")
 			print(result)
 		end
 	end
@@ -92,7 +127,7 @@ end
 -- curl, returning both the process status and the final HTTP status.
 local function curl(url, file)
 	local args = {
-		"-skfL", "-w %{http_code}", "--retry 3", "--connect-timeout 3"
+		"-skfL", "-w %{http_code}", "--retry 3", "--connect-timeout 3", "--max-time 120"
 	}
 	if file then
 		args[#args + 1] = "-o " .. file
@@ -103,7 +138,7 @@ end
 
 local function check_excluded_domain(value)
 	for _, domain in ipairs(excluded_domain) do
-		if value:find(domain) then
+		if api.domain_matches(value, domain) then
 			return true
 		end
 	end
@@ -117,9 +152,10 @@ local function parse_rule_content(content, rule_type, exclude_domain)
 		line = trim(line)
 		if line ~= "" and not line:find(comment_pattern) then
 			if rule_type == "domain" then
-				if not line:find(ip_pattern) and not (exclude_domain and check_excluded_domain(line)) then
+				if not line:find(ip_pattern) then
 					local _, _, domain = line:find(domain_pattern)
-					if domain and domain ~= "" then
+					if domain then domain = api.normalize_domain(domain) end
+					if domain and domain ~= "" and not (exclude_domain and check_excluded_domain(domain)) then
 						entries[domain] = true
 					end
 				end
@@ -162,7 +198,8 @@ local function fetch_rule(rule_name, rule_type, urls, exclude_domain)
 		return false
 	end
 
-	log(rule_name .. " 开始更新...")
+	job_write("downloading", "下载：" .. ({gfwlist="GFW 域名", chnroute="中国 IPv4", chnroute6="中国 IPv6"})[rule_name])
+	api.log_debug("规则", rule_name .. "：开始下载")
 	local entries = {}
 	local failed = false
 	for index, url in ipairs(urls) do
@@ -214,7 +251,7 @@ local function fetch_rule(rule_name, rule_type, urls, exclude_domain)
 		return false
 	end
 	if old_content == content then
-		log(rule_name .. " 版本一致，无需更新。")
+		api.log_debug("规则", rule_name .. "：内容未变化")
 		return true
 	end
 
@@ -242,7 +279,8 @@ end
 
 local function run_task(label, callback)
 	local ok, result = xpcall(callback, function(e)
-		return tostring(e) .. "\n" .. debug.traceback()
+		api.log_debug("规则", debug.traceback())
+		return tostring(e)
 	end)
 	if not ok then
 		update_failed = true
@@ -259,6 +297,7 @@ local function apply_staged_rules()
 	if #staged_rules == 0 then
 		return false
 	end
+	job_write("applying", "正在应用规则")
 	local command = "/etc/init.d/" .. name .. " update_rules " .. shell_quote(rule_publish_dir) .. " >/dev/null 2>&1"
 	local status = luci.sys.call(command)
 	if status ~= 0 then
@@ -266,7 +305,7 @@ local function apply_staged_rules()
 		return false
 	end
 	for _, rule in ipairs(staged_rules) do
-		log(rule.name .. " 更新成功，总规则数 " .. rule.count .. " 条。")
+		log("更新完成：" .. ({gfwlist="GFW 域名", chnroute="中国 IPv4", chnroute6="中国 IPv6"})[rule.name] .. " " .. rule.count .. " 条")
 	end
 	return true
 end
@@ -291,10 +330,12 @@ else
 end
 
 if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 then
+	job_write("done", "没有选择需要更新的列表")
 	os.exit(0)
 end
 
-log("开始更新规则...")
+job_write("downloading", "开始下载")
+log("开始更新")
 task_tmp_dir = create_task_tmp_dir()
 if task_tmp_dir then
 	rule_publish_dir = task_tmp_dir .. "/rules"
@@ -321,12 +362,6 @@ if task_tmp_dir and rule_publish_dir then
 	end
 end
 
-ucic:set(name, ucic:get_first(name, 'global_rules'), "gfwlist_update", gfwlist_update)
-ucic:set(name, ucic:get_first(name, 'global_rules'), "chnroute_update", chnroute_update)
-ucic:set(name, ucic:get_first(name, 'global_rules'), "chnroute6_update", chnroute6_update)
-ucic:save(name)
-luci.sys.call("uci commit " .. name)
-
 if rule_publish_dir then
 	if #staged_rules > 0 and not apply_staged_rules() then
 		update_failed = true
@@ -334,7 +369,9 @@ if rule_publish_dir then
 end
 cleanup_task_tmp_dir()
 if update_failed then
-	log("规则更新结束，部分操作失败。")
+	job_write("failed", "更新未全部完成；失败的列表保留原文件")
+	log("更新未全部完成；失败的列表保留原文件")
 	os.exit(1)
 end
-log("规则更新完毕...")
+job_write("done", "更新完成")
+log("更新完成")

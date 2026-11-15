@@ -2,8 +2,6 @@ local api = require "luci.passwall.api"
 local appname = "passwall"
 local uci = api.uci
 local datatypes = api.datatypes
-local has_singbox = api.finded_com("singbox")
-local has_xray = api.finded_com("xray")
 local has_gfwlist = api.fs.access("/usr/share/passwall/rules/gfwlist")
 local has_chnroute = api.fs.access("/usr/share/passwall/rules/chnroute")
 
@@ -62,23 +60,23 @@ s = m:section(TypedSection, "global")
 s.anonymous = true
 s.addremove = false
 
-s:tab("Main", translate("Main"))
+s:tab("Main", translate("基础设置"))
 
 -- [[ Global Settings ]]--
-o = s:taboption("Main", Flag, "enabled", translate("Main switch"))
+o = s:taboption("Main", Flag, "enabled", translate("启用"))
 o.rmempty = false
 
 ---- TCP Node
-tcp_node = s:taboption("Main", ListValue, "tcp_node", "<a style='color: red'>" .. translate("TCP Node") .. "</a>")
-tcp_node:value("nil", translate("Close"))
+tcp_node = s:taboption("Main", ListValue, "tcp_node", translate("TCP 节点"))
+tcp_node:value("nil", translate("关闭"))
 
 ---- UDP Node
-udp_node = s:taboption("Main", ListValue, "udp_node", "<a style='color: red'>" .. translate("UDP Node") .. "</a>")
-udp_node:value("nil", translate("Close"))
-udp_node:value("tcp", translate("Same as the tcp node"))
+udp_node = s:taboption("Main", ListValue, "udp_node", translate("UDP 节点"))
+udp_node:value("nil", translate("关闭"))
+udp_node:value("tcp", translate("与 TCP 节点相同"))
 
 -- 分流
-if (has_singbox or has_xray) and #nodes_table > 0 then
+if #nodes_table > 0 then
 	local function get_cfgvalue(shunt_node_id, option)
 		return function(self, section)
 			return m:get(shunt_node_id, option) or "nil"
@@ -92,25 +90,14 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 	if #normal_list > 0 then
 		for k, v in pairs(shunt_list) do
 			local vid = v.id
-			-- shunt node type, Sing-Box or Xray
-			local type = s:taboption("Main", ListValue, vid .. "-type", translate("Type"))
-			if has_singbox then
-				type:value("sing-box", "Sing-Box")
-			end
-			if has_xray then
-				type:value("Xray", translate("Xray"))
-			end
-			type.cfgvalue = get_cfgvalue(v.id, "type")
-			type.write = get_write(v.id, "type")
-
 			-- pre-proxy
-			o = s:taboption("Main", Flag, vid .. "-preproxy_enabled", translate("Preproxy"))
+			o = s:taboption("Main", Flag, vid .. "-preproxy_enabled", translate("前置代理"))
 			o:depends("tcp_node", v.id)
 			o.rmempty = false
 			o.cfgvalue = get_cfgvalue(v.id, "preproxy_enabled")
 			o.write = get_write(v.id, "preproxy_enabled")
 
-			o = s:taboption("Main", ListValue, vid .. "-main_node", string.format('<a style="color:red">%s</a>', translate("Preproxy Node")), translate("Set the node to be used as a pre-proxy. Each rule (including <code>Default</code>) has a separate switch that controls whether this rule uses the pre-proxy or not."))
+			o = s:taboption("Main", ListValue, vid .. "-main_node", translate("前置代理节点"), translate("各规则可单独设置是否使用。"))
 			o:depends(vid .. "-preproxy_enabled", "1")
 			for k1, v1 in pairs(balancing_list) do
 				o:value(v1.id, v1.remark)
@@ -124,12 +111,6 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 			o.cfgvalue = get_cfgvalue(v.id, "main_node")
 			o.write = get_write(v.id, "main_node")
 
-			if (has_singbox and has_xray) or (v.type == "sing-box" and not has_singbox) or (v.type == "Xray" and not has_xray) then
-				type:depends("tcp_node", v.id)
-			else
-				type:depends("tcp_node", "hide") --不存在的依赖，即始终隐藏
-			end
-
 			uci:foreach(appname, "shunt_rules", function(e)
 				local id = e[".name"]
 				local node_option = vid .. "-" .. id .. "_node"
@@ -138,16 +119,16 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 					o.cfgvalue = get_cfgvalue(v.id, id)
 					o.write = get_write(v.id, id)
 					o:depends("tcp_node", v.id)
-					o:value("nil", translate("Close"))
-					o:value("_default", translate("Default"))
-					o:value("_direct", translate("Direct Connection"))
-					o:value("_blackhole", translate("Blackhole"))
+					o:value("nil", translate("关闭"))
+					o:value("_default", translate("默认"))
+					o:value("_direct", translate("直连"))
+					o:value("_blackhole", translate("黑洞"))
 
-					local pt = s:taboption("Main", ListValue, vid .. "-".. id .. "_proxy_tag", string.format('* <a style="color:red">%s</a>', e.remarks .. " " .. translate("Preproxy")))
+					local pt = s:taboption("Main", ListValue, vid .. "-".. id .. "_proxy_tag", string.format('* %s', e.remarks .. " " .. translate("前置代理")))
 					pt.cfgvalue = get_cfgvalue(v.id, id .. "_proxy_tag")
 					pt.write = get_write(v.id, id .. "_proxy_tag")
-					pt:value("nil", translate("Close"))
-					pt:value("main", translate("Preproxy Node"))
+					pt:value("nil", translate("关闭"))
+					pt:value("main", translate("前置代理节点"))
 					pt.default = "nil"
 					for k1, v1 in pairs(balancing_list) do
 						o:value(v1.id, v1.remark)
@@ -163,12 +144,12 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 			end)
 
 			local id = "default_node"
-			o = s:taboption("Main", ListValue, vid .. "-" .. id, string.format('* <a style="color:red">%s</a>', translate("Default")))
+			o = s:taboption("Main", ListValue, vid .. "-" .. id, string.format('* %s', translate("默认")))
 			o.cfgvalue = get_cfgvalue(v.id, id)
 			o.write = get_write(v.id, id)
 			o:depends("tcp_node", v.id)
-			o:value("_direct", translate("Direct Connection"))
-			o:value("_blackhole", translate("Blackhole"))
+			o:value("_direct", translate("直连"))
+			o:value("_blackhole", translate("黑洞"))
 			for k1, v1 in pairs(balancing_list) do
 				o:value(v1.id, v1.remark)
 			end
@@ -180,11 +161,11 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 			end
 
 			local id = "default_proxy_tag"
-			o = s:taboption("Main", ListValue, vid .. "-" .. id, string.format('* <a style="color:red">%s</a>', translate("Default Preproxy")), translate("When using, localhost will connect this node first and then use this node to connect the default node."))
+			o = s:taboption("Main", ListValue, vid .. "-" .. id, string.format('* %s', translate("默认前置代理")), translate("本机先连接此前置代理，再连接默认节点。"))
 			o.cfgvalue = get_cfgvalue(v.id, id)
 			o.write = get_write(v.id, id)
-			o:value("nil", translate("Close"))
-			o:value("main", translate("Preproxy Node"))
+			o:value("nil", translate("关闭"))
+			o:value("main", translate("前置代理节点"))
 			for k1, v1 in pairs(normal_list) do
 				if v1.protocol ~= "_balancing" then
 					o:depends({ [vid .. "-default_node"] = v1.id, [vid .. "-preproxy_enabled"] = "1" })
@@ -195,7 +176,7 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 		local tips = s:taboption("Main", DummyValue, "tips", " ")
 		tips.rawhtml = true
 		tips.cfgvalue = function(t, n)
-			return string.format('<a style="color: red">%s</a>', translate("没有可用节点，请先手动添加或导入节点。"))
+			return translate("没有可用节点，请先添加节点。")
 		end
 		tips:depends({ tcp_node = "nil", ["!reverse"] = true })
 		for k, v in pairs(shunt_list) do
@@ -207,31 +188,31 @@ if (has_singbox or has_xray) and #nodes_table > 0 then
 	end
 end
 
-tcp_node_socks_port = s:taboption("Main", Value, "tcp_node_socks_port", translate("TCP Node") .. " Socks " .. translate("Listen Port"))
+tcp_node_socks_port = s:taboption("Main", Value, "tcp_node_socks_port", translate("TCP 节点 SOCKS 监听端口"))
 tcp_node_socks_port.default = 1070
 tcp_node_socks_port.datatype = "port"
 tcp_node_socks_port:depends({ tcp_node = "nil", ["!reverse"] = true })
-tcp_node_socks_bind_local = s:taboption("Main", Flag, "tcp_node_socks_bind_local", translate("TCP Node") .. " Socks " .. translate("Bind Local"), translate("When selected, it can only be accessed localhost."))
+tcp_node_socks_bind_local = s:taboption("Main", Flag, "tcp_node_socks_bind_local", translate("TCP 节点 SOCKS 仅本机访问"))
 tcp_node_socks_bind_local.default = "1"
 tcp_node_socks_bind_local:depends({ tcp_node = "nil", ["!reverse"] = true })
 
 s:tab("DNS", translate("DNS"))
 
-dns_shunt = s:taboption("DNS", ListValue, "dns_shunt", "DNS " .. translate("Shunt"))
-dns_shunt:value("dnsmasq", "Dnsmasq")
-dns_shunt:value("chinadns-ng", "Dnsmasq + ChinaDNS-NG")
+dns_shunt = s:taboption("DNS", ListValue, "dns_shunt", translate("DNS 分流组件"))
+dns_shunt:value("dnsmasq", "dnsmasq")
+dns_shunt:value("chinadns-ng", "dnsmasq + ChinaDNS-NG")
 
-o = s:taboption("DNS", ListValue, "direct_dns_mode", translate("Direct DNS") .. " " .. translate("Request protocol"))
+o = s:taboption("DNS", ListValue, "direct_dns_mode", translate("直连 DNS 请求协议"))
 o.default = ""
-o:value("", translate("Auto"))
-o:value("udp", translatef("Requery DNS By %s", "UDP"))
-o:value("tcp", translatef("Requery DNS By %s", "TCP"))
+o:value("", translate("自动"))
+o:value("udp", "UDP")
+o:value("tcp", "TCP")
 --TO DO
 --o:value("doh", "DoH")
 o:depends({dns_shunt = "dnsmasq"})
 o:depends({dns_shunt = "chinadns-ng"})
 
-o = s:taboption("DNS", Value, "direct_dns_udp", translate("Direct DNS"))
+o = s:taboption("DNS", Value, "direct_dns_udp", translate("直连 DNS"))
 o.datatype = "or(ipaddr,ipaddrport)"
 o.default = "223.5.5.5"
 o:value("223.5.5.5")
@@ -242,7 +223,7 @@ o:value("180.184.2.2")
 o:value("114.114.114.114")
 o:depends("direct_dns_mode", "udp")
 
-o = s:taboption("DNS", Value, "direct_dns_tcp", translate("Direct DNS"))
+o = s:taboption("DNS", Value, "direct_dns_tcp", translate("直连 DNS"))
 o.datatype = "or(ipaddr,ipaddrport)"
 o.default = "223.5.5.5"
 o:value("223.5.5.5")
@@ -252,19 +233,14 @@ o:value("180.184.2.2")
 o:depends("direct_dns_mode", "tcp")
 
 ---- DNS Forward Mode
-dns_mode = s:taboption("DNS", ListValue, "dns_mode", translate("Filter Mode"))
-dns_mode:value("udp", translatef("Requery DNS By %s", "UDP"))
-dns_mode:value("tcp", translatef("Requery DNS By %s", "TCP"))
-if has_singbox then
-	dns_mode:value("sing-box", "Sing-Box")
-end
-if has_xray then
-	dns_mode:value("xray", "Xray")
-end
+dns_mode = s:taboption("DNS", ListValue, "dns_mode", translate("代理 DNS 处理方式"))
+dns_mode:value("udp", "UDP")
+dns_mode:value("tcp", "TCP")
+dns_mode:value("xray", "Xray")
 
-o = s:taboption("DNS", ListValue, "xray_dns_mode", translate("Request protocol"))
+o = s:taboption("DNS", ListValue, "xray_dns_mode", translate("上游协议"))
 o:value("tcp", "TCP")
-o:value("tcp+doh", "TCP + DoH (" .. translate("A/AAAA type") .. ")")
+o:value("tcp+doh", "TCP + DoH（" .. translate("A/AAAA 类型") .. "）")
 o:depends("dns_mode", "xray")
 o.cfgvalue = function(self, section)
 	return m:get(section, "v2ray_dns_mode")
@@ -275,21 +251,8 @@ o.write = function(self, section, value)
 	end
 end
 
-o = s:taboption("DNS", ListValue, "singbox_dns_mode", translate("Request protocol"))
-o:value("tcp", "TCP")
-o:value("doh", "DoH")
-o:depends("dns_mode", "sing-box")
-o.cfgvalue = function(self, section)
-	return m:get(section, "v2ray_dns_mode")
-end
-o.write = function(self, section, value)
-	if dns_mode:formvalue(section) == "sing-box" then
-		return m:set(section, "v2ray_dns_mode", value)
-	end
-end
-
 ---- DNS Forward
-o = s:taboption("DNS", Value, "remote_dns", translate("Remote DNS"))
+o = s:taboption("DNS", Value, "remote_dns", translate("远程 DNS"))
 o.datatype = "or(ipaddr,ipaddrport)"
 o.default = "1.1.1.1"
 o:value("1.1.1.1", "1.1.1.1 (CloudFlare)")
@@ -304,10 +267,9 @@ o:depends({dns_mode = "tcp"})
 o:depends({dns_mode = "udp"})
 o:depends({xray_dns_mode = "tcp"})
 o:depends({xray_dns_mode = "tcp+doh"})
-o:depends({singbox_dns_mode = "tcp"})
 
 ---- DoH
-o = s:taboption("DNS", Value, "remote_dns_doh", translate("Remote DNS DoH"))
+o = s:taboption("DNS", Value, "remote_dns_doh", translate("远程 DNS DoH"))
 o.default = "https://1.1.1.1/dns-query"
 o:value("https://1.1.1.1/dns-query", "CloudFlare")
 o:value("https://1.1.1.2/dns-query", "CloudFlare-Security")
@@ -321,59 +283,32 @@ o:value("https://doh.libredns.gr/dns-query,116.202.176.26", "LibreDNS")
 o:value("https://doh.libredns.gr/ads,116.202.176.26", "LibreDNS (No Ads)")
 o.validate = doh_validate
 o:depends({xray_dns_mode = "tcp+doh"})
-o:depends({singbox_dns_mode = "doh"})
 
-o = s:taboption("DNS", Value, "dns_client_ip", translate("EDNS Client Subnet"))
-o.description = translate("Notify the DNS server when the DNS query is notified, the location of the client (cannot be a private IP address).") .. "<br />" ..
-				translate("This feature requires the DNS server to support the Edns Client Subnet (RFC7871).")
+o = s:taboption("DNS", Value, "dns_client_ip", translate("EDNS 客户端子网"))
+o.description = translate("上游 DNS 须支持 RFC 7871，且仅填写公网 IP。")
 o.datatype = "ipaddr"
 o:depends({dns_mode = "xray"})
 
-o = s:taboption("DNS", Flag, "remote_fakedns", "FakeDNS", translate("Use FakeDNS work in the shunt domain that proxy."))
-o.default = "0"
-o:depends({dns_mode = "sing-box", dns_shunt = "dnsmasq"})
-o.validate = function(self, value, t)
-	if value and value == "1" then
-		local _dns_mode = dns_mode:formvalue(t)
-		local _tcp_node = tcp_node:formvalue(t)
-		if _dns_mode and _tcp_node and _tcp_node ~= "nil" then
-			if m:get(_tcp_node, "type"):lower() ~= _dns_mode then
-				return nil, translatef("TCP node must be '%s' type to use FakeDNS.", _dns_mode)
-			end
-		end
-	end
-	return value
-end
-
-o = s:taboption("DNS", ListValue, "chinadns_ng_default_tag", translate("Default DNS"))
+o = s:taboption("DNS", ListValue, "chinadns_ng_default_tag", translate("默认 DNS"))
 o.default = "none"
 o:value("gfw", translate("Remote DNS"))
 o:value("chn", translate("Direct DNS"))
-o:value("none", translate("Smart, Do not accept no-ip reply from Direct DNS"))
-o:value("none_noip", translate("Smart, Accept no-ip reply from Direct DNS"))
-local desc = "<ul>"
-		.. "<li>" .. translate("When not matching any domain name list:") .. "</li>"
-		.. "<li>" .. translate("Remote DNS: Can avoid more DNS leaks, but some domestic domain names maybe to proxy!") .. "</li>"
-		.. "<li>" .. translate("Direct DNS: Internet experience may be better, but DNS will be leaked!") .. "</li>"
+o:value("none", translate("智能（不接受直连 DNS 空响应）"))
+o:value("none_noip", translate("智能（接受直连 DNS 空响应）"))
+local desc = translate("未命中域名列表时使用；智能模式并行查询，直连结果为中国 IP 时优先返回。")
 o.description = desc
-		.. "<li>" .. translate("Smart: Forward to both direct and remote DNS, if the direct DNS resolution result is a mainland China IP, then use the direct result, otherwise use the remote result.") .. "</li>"
-		.. "<li>" .. translate("In smart mode, no-ip reply from Direct DNS:") .. "</li>"
-		.. "<li>" .. translate("Do not accept: Wait and use Remote DNS Reply.") .. "</li>"
-		.. "<li>" .. translate("Accept: Trust the Reply, using this option can improve DNS resolution speeds for some mainland IPv4-only sites.") .. "</li>"
-		.. "</ul>"
 o:depends({dns_shunt = "chinadns-ng", tcp_proxy_mode = "proxy", chn_list = "direct"})
 
-o = s:taboption("DNS", ListValue, "use_default_dns", translate("Default DNS"))
+o = s:taboption("DNS", ListValue, "use_default_dns", translate("默认 DNS"))
 o.default = "direct"
 o:value("remote", translate("Remote DNS"))
 o:value("direct", translate("Direct DNS"))
-o.description = desc .. "</ul>"
 o:depends({dns_shunt = "dnsmasq", tcp_proxy_mode = "proxy", chn_list = "direct"})
 
-o = s:taboption("DNS", Flag, "dns_redirect", "DNS " .. translate("Redirect"), translate("启用后由 Passwall 劫持 DNS，并自动关闭 dnsmasq 的 DNS 重定向；停止 Passwall 时固定开启 dnsmasq 的 DNS 重定向。"))
+o = s:taboption("DNS", Flag, "dns_redirect", translate("DNS 劫持"), translate("启用后关闭系统 DNS 重定向；停用或停止 Passwall 后重新开启。"))
 o.default = "1"
 
-s:tab("Proxy", translate("Mode"))
+s:tab("Proxy", translate("分流"))
 
 o = s:taboption("Proxy", Flag, "use_direct_list", translatef("Use %s", translate("Direct List")))
 o.default = "0"
@@ -398,50 +333,25 @@ if has_chnroute then
 end
 
 ---- TCP Default Proxy Mode
-tcp_proxy_mode = s:taboption("Proxy", ListValue, "tcp_proxy_mode", "TCP " .. translate("Default Proxy Mode"))
+tcp_proxy_mode = s:taboption("Proxy", ListValue, "tcp_proxy_mode", "TCP " .. translate("默认代理方式"))
 tcp_proxy_mode:value("disable", translate("No Proxy"))
 tcp_proxy_mode:value("proxy", translate("Proxy"))
 tcp_proxy_mode.default = "proxy"
 
 ---- UDP Default Proxy Mode
-udp_proxy_mode = s:taboption("Proxy", ListValue, "udp_proxy_mode", "UDP " .. translate("Default Proxy Mode"))
+udp_proxy_mode = s:taboption("Proxy", ListValue, "udp_proxy_mode", "UDP " .. translate("默认代理方式"))
 udp_proxy_mode:value("disable", translate("No Proxy"))
 udp_proxy_mode:value("proxy", translate("Proxy"))
 udp_proxy_mode.default = "proxy"
 
-o = s:taboption("Proxy", Flag, "localhost_proxy", translate("Localhost Proxy"), translate("When selected, localhost can transparent proxy."))
+o = s:taboption("Proxy", Flag, "localhost_proxy", translate("本机透明代理"))
 o.default = "0"
 o.rmempty = false
-
-s:tab("log", translate("Log"))
-o = s:taboption("log", Flag, "log_tcp", translate("Enable") .. " " .. translatef("%s Node Log", "TCP"))
-o.default = "0"
-o.rmempty = false
-
-o = s:taboption("log", Flag, "log_udp", translate("Enable") .. " " .. translatef("%s Node Log", "UDP"))
-o.default = "0"
-o.rmempty = false
-
-loglevel = s:taboption("log", ListValue, "loglevel", "Sing-Box/Xray " .. translate("Log Level"))
-loglevel.default = "warning"
-loglevel:value("debug")
-loglevel:value("info")
-loglevel:value("warning")
-loglevel:value("error")
-
-trojan_loglevel = s:taboption("log", ListValue, "trojan_loglevel", "Trojan " ..  translate("Log Level"))
-trojan_loglevel.default = "2"
-trojan_loglevel:value("0", "all")
-trojan_loglevel:value("1", "info")
-trojan_loglevel:value("2", "warn")
-trojan_loglevel:value("3", "error")
-trojan_loglevel:value("4", "fatal")
 
 for k, v in pairs(nodes_table) do
 	tcp_node:value(v.id, v["remark"])
 	udp_node:value(v.id, v["remark"])
 end
 
-m:append(Template(appname .. "/global/footer"))
 
 return m

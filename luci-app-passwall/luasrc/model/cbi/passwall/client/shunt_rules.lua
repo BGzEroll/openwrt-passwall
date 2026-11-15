@@ -2,36 +2,33 @@ local api = require "luci.passwall.api"
 local appname = "passwall"
 local datatypes = api.datatypes
 
-m = Map(appname, "Sing-Box/Xray " .. translate("Shunt Rule"))
+m = Map(appname, "Xray " .. translate("分流规则"))
 m.redirect = api.url()
 
 s = m:section(NamedSection, arg[1], "shunt_rules", "")
 s.addremove = false
 s.dynamic = false
 
-remarks = s:option(Value, "remarks", translate("Remarks"))
+remarks = s:option(Value, "remarks", translate("备注"))
 remarks.default = arg[1]
 remarks.rmempty = false
 
-protocol = s:option(MultiValue, "protocol", translate("Protocol"))
+protocol = s:option(MultiValue, "protocol", translate("协议"))
 protocol:value("http")
 protocol:value("tls")
 protocol:value("bittorrent")
 
-o = s:option(MultiValue, "inbound", translate("Inbound Tag"))
-o:value("tproxy", translate("Transparent proxy"))
-o:value("socks", "Socks")
+o = s:option(MultiValue, "inbound", translate("入站标签"))
+o:value("tproxy", translate("透明代理"))
+o:value("socks", "SOCKS")
 
-network = s:option(ListValue, "network", translate("Network"))
-network:value("tcp,udp", "TCP UDP")
+network = s:option(ListValue, "network", translate("网络"))
+network:value("tcp,udp", "TCP、UDP")
 network:value("tcp", "TCP")
 network:value("udp", "UDP")
 
-source = s:option(DynamicList, "source", translate("Source"))
-source.description = "<ul><li>" .. translate("Example:")
-.. "</li><li>" .. translate("IP") .. ": 192.168.1.100"
-.. "</li><li>" .. translate("IP CIDR") .. ": 192.168.1.0/24"
-.. "</li></ul>"
+source = s:option(DynamicList, "source", translate("来源 IP"))
+source.description = translate("仅支持 IPv4 地址，例如 192.168.113.10。")
 source.cast = "string"
 source.cfgvalue = function(self, section)
 	local value
@@ -61,7 +58,7 @@ source.validate = function(self, value, t)
 	end
 
 	if #err > 0 then
-		self:add_error(t, "invalid", translate("Not true format, please re-enter!"))
+		self:add_error(t, "invalid", translate("IP 格式无效，请检查。"))
 		for _, v in ipairs(err) do
 			self:add_error(t, "invalid", v)
 		end
@@ -92,9 +89,9 @@ end
 
 source.write = dynamicList_write
 
-port = s:option(Value, "port", translate("port"))
+port = s:option(Value, "port", translate("端口"))
 
-domain_list = s:option(TextValue, "domain_list", translate("Domain"))
+domain_list = s:option(TextValue, "domain_list", translate("域名规则"))
 domain_list.rows = 10
 domain_list.wrap = "off"
 domain_list.validate = function(self, value)
@@ -116,19 +113,14 @@ domain_list.validate = function(self, value)
 		end
 		if flag == 1 then
 			if not datatypes.hostname(tmp_host) then
-				return nil, tmp_host .. " " .. translate("Not valid domain name, please re-enter!")
+				return nil, translate("无效域名：") .. tmp_host
 			end
 		end
 	end
 	return value
 end
-domain_list.description = "<br /><ul><li>" .. translate("Plaintext: If this string matches any part of the targeting domain, this rule takes effet. Example: rule 'sina.com' matches targeting domain 'sina.com', 'sina.com.cn' and 'www.sina.com', but not 'sina.cn'.")
-.. "</li><li>" .. translate("Regular expression: Begining with 'regexp:', the rest is a regular expression. When the regexp matches targeting domain, this rule takes effect. Example: rule 'regexp:\\.goo.*\\.com$' matches 'www.google.com' and 'fonts.googleapis.com', but not 'google.com'.")
-.. "</li><li>" .. translate("Subdomain (recommended): Begining with 'domain:' and the rest is a domain. When the targeting domain is exactly the value, or is a subdomain of the value, this rule takes effect. Example: rule 'domain:v2ray.com' matches 'www.v2ray.com', 'v2ray.com', but not 'xv2ray.com'.")
-.. "</li><li>" .. translate("Full domain: Begining with 'full:' and the rest is a domain. When the targeting domain is exactly the value, the rule takes effect. Example: rule 'domain:v2ray.com' matches 'v2ray.com', but not 'www.v2ray.com'.")
-.. "</li><li>" .. translate("Annotation: Begining with #")
-.. "</li></ul>"
-ip_list = s:option(TextValue, "ip_list", "IP")
+domain_list.description = translate("普通规则按域名片段匹配；domain: 匹配域名及子域，full: 匹配完整域名，regexp: 使用正则；# 开头的行为注释。")
+ip_list = s:option(TextValue, "ip_list", "IP 规则")
 ip_list.rows = 10
 ip_list.wrap = "off"
 ip_list.validate = function(self, value)
@@ -139,15 +131,12 @@ ip_list.validate = function(self, value)
 		if ipmask:find("#") and ipmask:find("#") == 1 then
 		else
 			if not (datatypes.ipmask4(ipmask) or datatypes.ipmask6(ipmask)) then
-				return nil, ipmask .. " " .. translate("Not valid IP format, please re-enter!")
+				return nil, translate("无效 IP 地址：") .. ipmask
 			end
 		end
 	end
 	return value
 end
-ip_list.description = "<br /><ul><li>" .. translate("IP: such as '127.0.0.1'.")
-.. "</li><li>" .. translate("CIDR: such as '127.0.0.0/8'.")
-.. "</li><li>" .. translate("Annotation: Begining with #")
-.. "</li></ul>"
+ip_list.description = translate("支持 IPv4/IPv6 地址和 CIDR；# 开头的行为注释。")
 
 return m

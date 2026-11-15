@@ -1,0 +1,41 @@
+#!/bin/sh
+# Downloads have their own lock; only publication takes the lifecycle lock.
+APP=/usr/share/passwall
+mkdir -p /var/lock /var/run/passwall || exit 1
+exec 8>/var/lock/passwall-rule-update.lock
+case "$1" in
+	status)
+		if flock -n 8; then
+			lua "$APP/rule_update.lua" status-idle
+		else
+			lua "$APP/rule_update.lua" status
+		fi
+		exit $?
+		;;
+	start|run) ;;
+	*) exit 2 ;;
+esac
+if ! flock -n 8; then
+	lua "$APP/rule_update.lua" busy
+	exit 75
+fi
+: >/var/run/passwall/rule-update.error || exit 1
+lua "$APP/rule_update.lua" prepare >/dev/null || exit 1
+export PASSWALL_RULE_UPDATE_LOCKED=1
+run_worker() {
+	if [ -n "$1" ]; then
+		lua "$APP/rule_update.lua" log "$1" 2>/var/run/passwall/rule-update.error
+	else
+		lua "$APP/rule_update.lua" log nil cron 2>/var/run/passwall/rule-update.error
+	fi
+	local result=$?
+	[ "$result" = 0 ] || lua "$APP/rule_update.lua" failed >/dev/null
+	return "$result"
+}
+if [ "$1" = start ]; then
+	# Both the worker and curl retain fd 8 until the task ends.
+	run_worker "$2" </dev/null >/dev/null 2>&1 &
+	lua "$APP/rule_update.lua" status
+else
+	run_worker "$2"
+fi

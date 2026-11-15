@@ -1,273 +1,191 @@
 <%
 local api = require "luci.passwall.api"
+local xml = require "luci.xml"
+local function escape(value)
+	local result = xml.pcdata(tostring(value or ""))
+	result = result:gsub('"', "&quot;")
+	result = result:gsub("'", "&#39;")
+	return result
+end
 -%>
 
+<div id="passwall-node-list"
+	data-copy-url="<%=escape(api.url("copy_node"))%>"
+	data-delete-url="<%=escape(api.url("delete_select_nodes"))%>"
+	data-clear-url="<%=escape(api.url("clear_all_nodes"))%>"
+	data-list-url="<%=escape(api.url("node_list"))%>"
+	data-ping-url="<%=escape(api.url("ping_node"))%>"
+	data-urltest-url="<%=escape(api.url("urltest_node"))%>"
+	data-confirm-clear="确定清空所有节点？"
+	data-confirm-delete="确定删除所选节点？">
+</div>
+
 <style>
-table th, .table .th {
-	text-align: center;
+#cbi-passwall-nodes .th,
+#cbi-passwall-nodes .td { text-align:center; vertical-align:middle; }
+#cbi-passwall-nodes .cbi-section-actions { width:28em; }
+#cbi-passwall-nodes .cbi-section-actions > div {
+	display:flex; align-items:center; justify-content:center; gap:0.25em; flex-wrap:nowrap;
 }
-
-table td, .table .td {
-	text-align: center;
-	/* white-space: nowrap; */
-	word-break: keep-all;
-}
-
-#set_node_div {
-	display: none;
-	width: 30rem;
-	position: fixed;
-	top:50%;
-	padding-top: 30px;
-	z-index: 99;
-	text-align: center;
-	background: white;
-	box-shadow: darkgrey 10px 10px 30px 5px;
-}
-
-._now_use {
-	background: #94e1ff !important;
-}
-
-.ping a:hover{
-	text-decoration : underline;
-}
+#cbi-passwall-nodes [data-node-select] { margin:0; flex:0 0 auto; }
 </style>
 
 <script type="text/javascript">
 	//<![CDATA[
-	function copy_node(cbi_id) {
-		window.location.href = '<%=api.url("copy_node")%>' + "?section=" + cbi_id;
-	}
+	(function() {
+		var config = document.getElementById("passwall-node-list");
+		var table = document.getElementById("cbi-passwall-nodes");
 
-	var section = "";
-	function open_set_node_div(cbi_id) {
-		section = cbi_id;
-		document.getElementById("set_node_div").style.display="block";
-		var node_name = document.getElementById("cbid.passwall." + cbi_id + ".remarks").value;
-		document.getElementById("set_node_name").innerHTML = node_name;
-	}
+		if (!config || !table)
+			return;
 
-	function close_set_node_div() {
-		document.getElementById("set_node_div").style.display="none";
-		document.getElementById("set_node_name").innerHTML = "";
-	}
+		table.querySelectorAll('tr.cbi-section-table-row').forEach(function(row) {
+			var identity = row.querySelector('[data-node-section]');
+			var actions = row.querySelector('.cbi-section-actions > div');
+			if (!identity || !actions) return;
+			var section = identity.getAttribute('data-node-section');
+			var checkbox = document.createElement('input');
+			checkbox.type = 'checkbox';
+			checkbox.className = 'cbi-input-checkbox';
+			checkbox.setAttribute('data-node-select', '1');
+			checkbox.setAttribute('data-section', section);
+			checkbox.setAttribute('aria-label', '选择节点');
+			var copy = document.createElement('button');
+			copy.type = 'button';
+			copy.className = 'btn cbi-button cbi-button-add';
+			copy.textContent = '复制';
+			copy.setAttribute('data-node-action', 'copy');
+			copy.setAttribute('data-section', section);
+			actions.insertBefore(copy, actions.firstChild);
+			actions.insertBefore(checkbox, copy);
+			[['.cbi-button-up','上移'], ['.cbi-button-down','下移'],
+			 ['.cbi-button-edit','编辑'], ['.cbi-button-remove','删除']].forEach(function(item) {
+				var button = actions.querySelector(item[0]);
+				button.value = item[1];
+				button.title = item[1];
+			});
+		});
 
-	function _cbi_row_top(id) {
-		var dom = document.getElementById("cbi-passwall-" + id);
-		if (dom) {
-			var trs = document.getElementById("cbi-passwall-nodes").getElementsByClassName("cbi-section-table-row");
-			if (trs && trs.length > 0) {
-				for (var i = 0; i < trs.length; i++) {
-					var up = dom.getElementsByClassName("cbi-button-up");
-					if (up) {
-						cbi_row_swap(up[0], true, 'cbi.sts.passwall.nodes');
-					}
+		function selectedNodes() {
+			return Array.prototype.slice.call(table.querySelectorAll("[data-node-select]"));
+		}
+
+		function updateSelectButton() {
+			var button = document.querySelector("[data-node-action='toggle-all']");
+			var checkboxes = selectedNodes();
+			var allSelected = checkboxes.length > 0 && checkboxes.every(function(checkbox) {
+				return checkbox.checked;
+			});
+
+			if (button)
+				button.textContent = allSelected ? "取消全选" : "全选";
+		}
+
+		function redirectAfterSuccess(xhr) {
+			if (xhr && xhr.status === 200)
+				window.location.assign(config.getAttribute("data-list-url"));
+			else
+				window.alert("操作失败");
+		}
+
+		function runTest(button) {
+			var type = button.getAttribute("data-test");
+			var result = button.parentNode.querySelector(".node-test-result");
+			var requestUrl = type === "url" ? config.getAttribute("data-urltest-url") : config.getAttribute("data-ping-url");
+			var params;
+
+			if (!result)
+				return;
+			if (button.getAttribute("aria-disabled") === "true")
+				return;
+
+			if (type === "url") {
+				params = { id: button.getAttribute("data-section") };
+			} else {
+				var address = button.getAttribute("data-address");
+				var port = button.getAttribute("data-port");
+				if (!address || !port) {
+					result.textContent = "地址或端口为空";
+					return;
 				}
-			}
-		}
-	}
-
-	function checked_all_node(btn) {
-		var doms = document.getElementById("cbi-passwall-nodes").getElementsByClassName("nodes_select");
-		if (doms && doms.length > 0) {
-			for (var i = 0 ; i < doms.length; i++) {
-				doms[i].checked = true;
-			}
-			btn.value = "<%:DeSelect all%>";
-			btn.setAttribute("onclick", "dechecked_all_node(this)");
-		}
-	}
-
-	function dechecked_all_node(btn) {
-		var doms = document.getElementById("cbi-passwall-nodes").getElementsByClassName("nodes_select");
-		if (doms && doms.length > 0) {
-			for (var i = 0 ; i < doms.length; i++) {
-				doms[i].checked = false;
-			}
-			btn.value = "<%:Select all%>";
-			btn.setAttribute("onclick", "checked_all_node(this)");
-		}
-	}
-
-	function delete_select_nodes() {
-		var ids = [];
-		var doms = document.getElementById("cbi-passwall-nodes").getElementsByClassName("nodes_select");
-		if (doms && doms.length > 0) {
-			for (var i = 0 ; i < doms.length; i++) {
-				if (doms[i].checked) {
-					ids.push(doms[i].getAttribute("cbid"))
-				}
-			}
-			if (ids.length > 0) {
-				if (confirm('<%:Are you sure to delete select nodes?%>') == true){
-					XHR.get('<%=api.url("delete_select_nodes")%>', {
-						ids: ids.join()
-					},
-					function(x, data) {
-						if (x && x.status == 200) {
-							/*
-							for (var i = 0 ; i < ids.length; i++) {
-								var box = document.getElementById("cbi-passwall-" + ids[i]);
-								box.remove();
-							}
-							*/
-							window.location.href = '<%=api.url("node_list")%>';
-						}
-						else {
-							alert("<%:Error%>");
-						}
-					});
-				}
-			}
-		}
-		if (ids.length <= 0) {
-			alert("<%:You no select nodes !%>");
-		}
-	}
-
-	function set_node(protocol) {
-		if (confirm('<%:Are you sure set to%> ' + protocol.toUpperCase() + '<%:the server?%>')==true){
-			window.location.href = '<%=api.url("set_node")%>?protocol=' + protocol + '&section=' + section;
-		}
-	}
-
-	function get_address_full(id) {
-		try {
-			var address = document.getElementById("cbid.passwall." + id + ".address").value;
-			var port = document.getElementById("cbid.passwall." + id + ".port").value;
-		}
-		catch(err){}
-		//判断是否含有汉字
-		var reg = new RegExp("[\\u4E00-\\u9FFF]+","g");
-		if ((address != null && address != "") && (port != null && port != "") && reg.test(address) == false) {
-			return { address: address, port: port };
-		} else {
-			return null;
-		}
-	}
-
-	//获取当前使用的节点
-	function get_now_use_node() {
-		XHR.get('<%=api.url("get_now_use_node")%>', null,
-			function(x, result) {
-				var id = result["TCP"];
-				if (id) {
-					var dom = document.getElementById("cbi-passwall-" + id);
-					if (dom) {
-						dom.classList.add("_now_use");
-						dom.title = "当前TCP节点";
-						//var v = "<a style='color: red'>当前TCP节点：</a>" + document.getElementById("cbid.passwall." + id + ".remarks").value;
-						//document.getElementById("cbi-passwall-" + id + "-remarks").innerHTML = v;
-					}
-				}
-				id = result["UDP"];
-				if (id) {
-					var dom = document.getElementById("cbi-passwall-" + id);
-					if (dom) {
-						dom.classList.add("_now_use");
-						dom.title = "当前UDP节点";
-					}
-				}
-			}
-		);
-	}
-
-	function urltest_node(cbi_id, dom) {
-		if (cbi_id != null) {
-			dom.onclick = null
-			dom.innerText = "<%:Check...%>";
-			XHR.get('<%=api.url("urltest_node")%>', {
-					id: cbi_id
-				},
-				function(x, result) {
-					if(x && x.status == 200) {
-						if (result.use_time == null || result.use_time.trim() == "") {
-							dom.outerHTML = "<font style='color:red'><%:Timeout%></font>";
-						} else {
-							var color = "red";
-							var use_time = result.use_time;
-							use_time = parseInt(use_time) + 1;
-							if (use_time < 1000) {
-								color = "green";
-							} else if (use_time < 2000) {
-								color = "#fb9a05";
-							} else {
-								color = "red";
-							}
-							dom.outerHTML = "<font style='color:" + color + "'>" + use_time + " ms" + "</font>";
-						}
-					} else {
-						dom.outerHTML = "<font style='color:red'><%:Error%></font>";
-					}
-				}
-			);
-		}
-	}
-	
-	function ping_node(cbi_id, dom, type) {
-		var full = get_address_full(cbi_id);
-		if (full != null) {
-			dom.onclick = null
-			dom.innerText = "<%:Check...%>";
-			XHR.get('<%=api.url("ping_node")%>', {
-					address: full.address,
-					port: full.port,
+				params = {
+					address: address,
+					port: port,
 					type: type
-				},
-				function(x, result) {
-					if(x && x.status == 200) {
-						if (result.ping == null || result.ping.trim() == "") {
-							dom.outerHTML = "<font style='color:red'><%:Timeout%></font>";
-						} else {
-							var ping = parseInt(result.ping);
-							if (ping < 100)
-								dom.outerHTML = "<font style='color:green'>" + result.ping + " ms" + "</font>";
-							else if (ping < 200)
-								dom.outerHTML = "<font style='color:#fb9a05'>" + result.ping + " ms" + "</font>";
-							else if (ping >= 200)
-								dom.outerHTML = "<font style='color:red'>" + result.ping + " ms" + "</font>";
-						}
-					}
+				};
+			}
+
+			button.setAttribute("aria-disabled", "true");
+			result.textContent = "检测中…";
+			XHR.get(requestUrl, params, function(xhr, data) {
+				button.setAttribute("aria-disabled", "false");
+				if (!xhr || xhr.status !== 200) {
+					result.textContent = "错误";
+					return;
 				}
-			);
-		}
-	}
-	
-	get_now_use_node();
 
-	var edit_btn = document.getElementById("cbi-passwall-nodes").getElementsByClassName("cbi-button cbi-button-edit");
-	for (var i = 0; i < edit_btn.length; i++) {
-		try {
-			var onclick_str = edit_btn[i].getAttribute("onclick");
-			var id = onclick_str.substring(onclick_str.lastIndexOf('/') + 1, onclick_str.length - 1);
-			var td = edit_btn[i].parentNode;
-			var new_div = "";
-			//添加"勾选"框
-			new_div += '<input class="cbi-input-checkbox nodes_select" type="checkbox" cbid="' + id + '" />&nbsp;&nbsp;';
-			//添加"置顶"按钮
-			new_div += '<input class="btn cbi-button" type="button" value="<%:To Top%>" onclick="_cbi_row_top(\'' + id + '\')"/>&nbsp;&nbsp;';
-			//添加"应用"按钮
-			new_div += '<input class="btn cbi-button cbi-button-apply" type="button" value="<%:Use%>" id="apply_' + id + '" onclick="open_set_node_div(\'' + id + '\')"/>&nbsp;&nbsp;';
-			//添加"复制"按钮
-			new_div += '<input class="btn cbi-button cbi-button-add" type="button" value="<%:Copy%>" onclick="copy_node(\'' + id + '\')"/>&nbsp;&nbsp;';
-			td.innerHTML = new_div + td.innerHTML;
-		}
-		catch(err) {
-			console.error(err);
-		}
-	}
+				var value = type === "url" ? data && data.use_time : data && data.ping;
+				if (value == null || String(value).trim() === "") {
+					result.textContent = "超时";
+					return;
+				}
 
+				var milliseconds = parseFloat(value);
+				result.textContent = !isNaN(milliseconds) && isFinite(milliseconds) ? Math.round(milliseconds) + " ms" : "超时";
+			});
+		}
+
+		document.addEventListener("click", function(event) {
+			var button = event.target;
+			while (button && button !== document && (!button.getAttribute || button.getAttribute("data-node-action") === null))
+				button = button.parentNode;
+			if (!button || button === document || !button.getAttribute || button.getAttribute("data-node-action") === null)
+				return;
+
+			var action = button.getAttribute("data-node-action");
+			var section = button.getAttribute("data-section");
+
+			if (button.tagName === "A")
+				event.preventDefault();
+
+			if (action === "copy") {
+				window.location.assign(config.getAttribute("data-copy-url") + "?section=" + encodeURIComponent(section));
+			} else if (action === "test") {
+				runTest(button);
+			} else if (action === "toggle-all") {
+				var checkboxes = selectedNodes();
+				var allSelected = checkboxes.length > 0 && checkboxes.every(function(checkbox) {
+					return checkbox.checked;
+				});
+				checkboxes.forEach(function(checkbox) {
+					checkbox.checked = !allSelected;
+				});
+				updateSelectButton();
+			} else if (action === "delete-selected") {
+				var ids = selectedNodes().filter(function(checkbox) {
+					return checkbox.checked;
+				}).map(function(checkbox) {
+					return checkbox.getAttribute("data-section");
+				});
+
+				if (!ids.length) {
+					window.alert("请先选择节点");
+				} else if (window.confirm(config.getAttribute("data-confirm-delete"))) {
+					XHR.get(config.getAttribute("data-delete-url"), { ids: ids.join(",") }, redirectAfterSuccess);
+				}
+			} else if (action === "clear-all") {
+				if (window.confirm(config.getAttribute("data-confirm-clear")))
+					XHR.get(config.getAttribute("data-clear-url"), null, redirectAfterSuccess);
+
+			}
+		});
+
+		document.addEventListener("change", function(event) {
+			if (event.target.getAttribute && event.target.getAttribute("data-node-select") !== null)
+				updateSelectButton();
+		});
+
+		updateSelectButton();
+	})();
 	//]]>
 </script>
-
-<div style="display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center;">
-	<div id="set_node_div">
-		<div class="cbi-value"><%:You choose node is:%><a style="color: red" id="set_node_name"></a></div>
-		<div class="cbi-value">
-			<input class="btn cbi-button cbi-button-edit" type="button" onclick="set_node('tcp')" value="TCP" />
-			<input class="btn cbi-button cbi-button-edit" type="button" onclick="set_node('udp')" value="UDP" />
-			<input class="btn cbi-button cbi-button-remove" type="button" onclick="close_set_node_div()" value="<%:Close%>" />
-		</div>
-	</div>
-</div>

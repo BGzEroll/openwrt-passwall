@@ -28,9 +28,8 @@ uci -q delete 'passwall.@global_delay[0].start_daemon'
 for option in geoip_update geosite_update v2ray_location_asset interval_update; do
 	uci -q delete "passwall.@global_rules[0].$option"
 done
-for option in geoip_path geoip_url geosite_path geosite_url; do
-	uci -q delete "passwall.@global_singbox[0].$option"
-done
+while uci -q delete 'passwall.@global_singbox[0]'; do :; done
+uci -q delete 'passwall.@global[0].remote_fakedns'
 if [ "$(uci -q get 'passwall.@global_rules[0].week_update')" = 8 ]; then
 	uci set 'passwall.@global_rules[0].auto_update=0'
 	uci -q delete 'passwall.@global_rules[0].week_update'
@@ -60,6 +59,7 @@ for node in $(uci -q show passwall | sed -n 's/^passwall\.\([^.=]*\)=nodes$/\1/p
 	fi
 done
 uci -q delete 'passwall.@global[0].filter_proxy_ipv6'
+uci -q delete 'passwall.@global[0].trojan_loglevel'
 uci commit passwall
 
 chmod +x /usr/share/passwall/*.sh

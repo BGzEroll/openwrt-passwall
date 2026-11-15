@@ -16,7 +16,6 @@ local USE_BLOCK_LIST = var["-USE_BLOCK_LIST"]
 local USE_GFW_LIST = var["-USE_GFW_LIST"]
 local CHN_LIST = var["-CHN_LIST"]
 local DEFAULT_PROXY_MODE = var["-DEFAULT_PROXY_MODE"]
-local NO_LOGIC_LOG = var["-NO_LOGIC_LOG"]
 
 local uci = api.uci
 local fs = api.fs
@@ -26,10 +25,7 @@ local list1 = {}
 local excluded_domain = {}
 
 local function log(...)
-	if NO_LOGIC_LOG == "1" then
-		return
-	end
-	api.log(...)
+	api.log_debug("DNS", ...)
 end
 
 local function fail_file(action, path, err)
@@ -100,6 +96,7 @@ end
 ensure_output_dir(TMP_DNSMASQ_PATH)
 
 local function check_dns(domain, dns)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return false
 	end
@@ -115,6 +112,7 @@ local function check_dns(domain, dns)
 end
 
 local function check_ipset(domain, ipset)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return false
 	end
@@ -130,6 +128,7 @@ local function check_ipset(domain, ipset)
 end
 
 local function set_domain_address(domain, address)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return
 	end
@@ -145,6 +144,7 @@ local function set_domain_address(domain, address)
 end
 
 local function set_domain_dns(domain, dns)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return
 	end
@@ -165,6 +165,7 @@ local function set_domain_dns(domain, dns)
 end
 
 local function set_domain_ipset(domain, ipset)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return
 	end
@@ -185,6 +186,7 @@ local function set_domain_ipset(domain, ipset)
 end
 
 local function add_excluded_domain(domain)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return
 	end
@@ -192,11 +194,12 @@ local function add_excluded_domain(domain)
 end
 
 local function check_excluded_domain(domain)
+	domain = api.normalize_domain(domain)
 	if domain == "" or domain:find("#") then
 		return false
 	end
 	for k,v in ipairs(excluded_domain) do
-		if domain:find(v) then
+		if api.domain_matches(domain, v) then
 			return true
 		end
 	end
@@ -254,7 +257,7 @@ do
 				end
 			end)
 		end
-		log(string.format("  - 节点列表中的域名(vpslist)：%s", fwd_dns or "默认"))
+		log(string.format("节点域名：%s", fwd_dns or "默认"))
 	end
 
 	--直连（白名单）列表
@@ -274,7 +277,7 @@ do
 					end
 				end
 			end
-			log(string.format("  - 域名白名单(whitelist)：%s", fwd_dns or "默认"))
+			log(string.format("直连列表：%s", fwd_dns or "默认"))
 		end
 	end
 
@@ -299,7 +302,7 @@ do
 					end
 				end
 			end
-			log(string.format("  - 代理域名表(blacklist)：%s", fwd_dns or "默认"))
+			log(string.format("代理列表：%s", fwd_dns or "默认"))
 		end
 	end
 
@@ -327,7 +330,7 @@ do
 					end
 				end
 			end
-			log(string.format("  - 防火墙域名表(gfwlist)：%s", fwd_dns or "默认"))
+			log(string.format("GFW 列表：%s", fwd_dns or "默认"))
 		end
 	end
 
@@ -374,7 +377,7 @@ do
 					end
 				end
 				if _node_id ~= "_direct" then
-					log(string.format("  - V2ray/Xray分流规则(%s)：%s", s.remarks, fwd_dns or "默认"))
+					log(string.format("分流规则（%s）：%s", s.remarks, fwd_dns or "默认"))
 				end
 			end
 		end)
@@ -424,8 +427,6 @@ if dnsmasq_default_dns then
 	conf[#conf + 1] = "all-servers\n"
 	conf[#conf + 1] = "no-poll\n"
 	conf[#conf + 1] = "no-resolv\n"
-	log(string.format("  - 默认：%s", dnsmasq_default_dns))
+	log(string.format("默认：%s", dnsmasq_default_dns))
 end
 write_file(DNSMASQ_CONF_FILE, table.concat(conf))
-
-log("  - PassWall必须依赖于Dnsmasq，如果你自行配置了错误的DNS流程，将会导致域名(直连/代理域名)分流失效！！！")

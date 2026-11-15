@@ -30,6 +30,7 @@ run_case() {
 		sysctl() { [ "${1:-}" = "-e" ] && echo 1 || true; }
 		echo_log() { :; }
 		echolog() { echo_log "$@"; }
+		debuglog() { :; }
 		get_host_ip() {
 			case "$1:$2" in
 				ipv4:*.*) echo "$2" ;;
@@ -38,6 +39,12 @@ run_case() {
 		}
 		config_load() { :; }
 		config_foreach() { :; }
+		config_ids() {
+			case "$1" in
+				acl_rule) printf '%s\n' acl_web acl_all acl_udp acl_direct ;;
+				nodes) echo node1 ;;
+			esac
+		}
 		network_flush_cache() { :; }
 		network_find_wan() { printf -v "$1" wan; }
 		network_find_wan6() { printf -v "$1" wan6; }

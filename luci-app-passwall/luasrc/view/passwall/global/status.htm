@@ -1,135 +1,56 @@
-<%
-local api = require "luci.passwall.api"
--%>
-
-<style>
-	.status-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 1rem;
-	}
-	.status-card {
-		display: flex;
-		align-items: flex-start;
-		min-width: 0;
-		padding: 1rem;
-		border: 1px solid rgba(0, 0, 0, .05);
-		border-radius: .375rem;
-		box-shadow: 0 0 2rem 0 rgba(136, 152, 170, .15);
-	}
-	.status-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex: 0 0 44px;
-		height: 44px;
-		margin-right: 1rem;
-		border-radius: 50%;
-		color: #fff;
-		font-size: .75rem;
-		font-weight: 700;
-	}
-	.status-icon.service { background: #2eb8ce; }
-	.status-icon.forwarding { background: #f7ad39; }
-	.status-icon.dns { background: #2f98e8; }
-	.status-icon.core { background: #7657c8; }
-	.status-card h4 {
-		margin: 0;
-		color: #8898aa !important;
-		font-size: .8125rem;
-		font-weight: 600;
-		line-height: 1.5em;
-	}
-	.status-copy { min-width: 0; }
-	.status-value {
-		display: inline-block;
-		color: #2dce89;
-		font-size: .9rem;
-		line-height: 1.7em;
-	}
-	.status-value.bad {
-		color: #fb6340;
-	}
-	.status-value.muted { color: #8898aa; }
-	.status-detail {
-		display: block;
-		margin-top: .25rem;
-		color: #8898aa;
-		font-size: .75rem;
-		line-height: 1.5em;
-		overflow-wrap: anywhere;
-	}
-	@media screen and (max-width: 720px) {
-		.status-grid { grid-template-columns: 1fr; gap: .4rem; }
-	}
-</style>
-
-<fieldset id="_passwall_status_fieldset" class="cbi-section">
-	<legend><%:Running Status%></legend>
-	<div class="status-grid">
-		<div class="status-card">
-			<div class="status-icon service">SVC</div>
-			<div class="status-copy">
-				<h4><%:Passwall Service%></h4>
-				<span id="status_service" class="status-value muted">—</span>
-				<small id="status_service_detail" class="status-detail"></small>
+<% local api = require "luci.passwall.api" -%>
+<fieldset class="cbi-section" id="passwall-status">
+	<legend><%:运行状态%></legend>
+	<div class="passwall-status-grid">
+		<% for _, name in ipairs({"TCP", "UDP", "DNS"}) do %>
+		<div class="passwall-status-card">
+			<div class="passwall-status-icon passwall-status-<%=name:lower()%>" aria-hidden="true">
+				<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+				<% if name == "TCP" then %>
+					<path d="M4 7h16m-5-5 5 5-5 5M20 17H4m5-5-5 5 5 5" />
+				<% elseif name == "UDP" then %>
+					<path d="m21 3-7 18-4-8-8-4 19-6ZM10 13 21 3" />
+				<% else %>
+					<circle cx="12" cy="12" r="9" /><ellipse cx="12" cy="12" rx="4" ry="9" /><path d="M3 12h18M5 6h14M5 18h14" />
+				<% end %>
+				</svg>
 			</div>
+			<div><strong><%=name%></strong><br /><span id="status_<%=name:lower()%>">—</span></div>
 		</div>
-		<div class="status-card">
-			<div class="status-icon forwarding">PBR</div>
-			<div class="status-copy">
-				<h4 id="status_forwarding_title"><%:转发模式%></h4>
-				<span id="status_forwarding" class="status-value muted">—</span>
-				<small id="status_forwarding_detail" class="status-detail"></small>
-			</div>
-		</div>
-		<div class="status-card">
-			<div class="status-icon dns">DNS</div>
-			<div class="status-copy">
-				<h4><%:DNS%></h4>
-				<span id="status_dns" class="status-value muted">—</span>
-				<small id="status_dns_detail" class="status-detail"></small>
-			</div>
-		</div>
-		<div class="status-card">
-			<div class="status-icon core">CORE</div>
-			<div class="status-copy">
-				<h4><%:核心 / SOCKS%></h4>
-				<span id="status_core" class="status-value muted">—</span>
-				<small id="status_core_detail" class="status-detail"></small>
-			</div>
-		</div>
+		<% end %>
 	</div>
-	<script>
-		//<![CDATA[
-		var statusLabels = {
-			running: '<%:RUNNING%>', ready: '<%:已就绪%>', configured: '<%:已配置%>',
-			not_running: '<%:NOT RUNNING%>', not_ready: '<%:未就绪%>',
-			degraded: '<%:部分异常%>', disabled: '<%:已关闭%>',
-			not_required: '<%:无需运行%>'
-		};
-
-		function update_status(id, value, detail) {
-			var element = document.getElementById(id);
-			if (!element) return;
-			var label = statusLabels[value] || value || '—';
-			element.textContent = label;
-			element.className = 'status-value ' + (
-				value === 'running' || value === 'ready' || value === 'configured' ? '' :
-				(value === 'disabled' || value === 'not_running' || value === 'not_ready' || value === 'degraded' ? 'bad' : 'muted')
-			);
-			var detailElement = document.getElementById(id + '_detail');
-			if (detailElement) detailElement.textContent = detail || '';
-		}
-
-		XHR.poll(5, '<%=api.url("index_status")%>', null, function (x, data) {
-			if (!data) return;
-			document.getElementById('status_forwarding_title').textContent = data.forwarding_mode || '<%:转发模式%>';
-			update_status('status_service', data.service_status, data.service_detail);
-			update_status('status_forwarding', data.forwarding_status, data.forwarding_detail);
-			update_status('status_dns', data.dns_status, data.dns_detail);
-			update_status('status_core', data.core_status, data.core_detail);
-		});
-		//]]>
-	</script>
 </fieldset>
+<style>
+#passwall-status .passwall-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; }
+#passwall-status .passwall-status-card {
+	display:flex; align-items:center; gap:1rem; padding:1rem;
+	border:1px solid rgba(127,127,127,0.15); border-radius:0.375rem;
+	box-shadow:0 0 1.5rem rgba(127,127,127,0.1);
+}
+#passwall-status .passwall-status-icon {
+	display:flex; align-items:center; justify-content:center;
+	flex:0 0 44px; height:44px; border-radius:50%; color:#fff;
+}
+#passwall-status .passwall-status-tcp { background:#2eb8ce; }
+#passwall-status .passwall-status-udp { background:#f7ad39; }
+#passwall-status .passwall-status-dns { background:#2f98e8; }
+#passwall-status [data-state="running"],
+#passwall-status [data-state="configured"] { color:#28a745; }
+#passwall-status [data-state="not_running"] { color:#c00; }
+@media (max-width:600px) {
+	#passwall-status .passwall-status-grid { grid-template-columns:1fr; gap:0.5rem; }
+}
+</style>
+<script type="text/javascript">
+(function() {
+	var labels = {running:'运行中', configured:'运行中', not_running:'未运行', disabled:'已关闭'};
+	XHR.poll(5, '<%=api.url("index_status")%>', null, function(x, data) {
+		['tcp', 'udp', 'dns'].forEach(function(name) {
+			var element = document.getElementById('status_' + name);
+			var state = x && x.status === 200 && data ? data[name + '_status'] : '';
+			element.textContent = state ? (labels[state] || '未知') : '读取失败';
+			element.setAttribute('data-state', state);
+		});
+	});
+})();
+</script>

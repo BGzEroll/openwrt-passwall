@@ -7,6 +7,7 @@ local quote = require 'luci.util'.shellquote
 local ubus = require 'ubus'
 local root = '/var/run/passwall'
 local action, directory = arg[1], arg[2]
+local api = require 'luci.passwall.api'
 
 local function read(path)
  return assert(json.parse(assert(fs.readfile(path))), path)
@@ -35,10 +36,20 @@ local function validate(instance)
  local binary = command[3]
  assert(fs.access(binary, 'x'), '程序不存在或不可执行: ' .. binary)
  local config = config_arg(command)
+ local check
  if config and binary:match('/xray$') then
-  assert(sys.call(quote(binary) .. ' run -test -c ' .. quote(config) .. ' >/dev/null 2>&1') == 0, 'Xray 配置校验失败: ' .. config)
- elseif config and binary:match('/sing%-box$') then
-  assert(sys.call(quote(binary) .. ' check -c ' .. quote(config) .. ' >/dev/null 2>&1') == 0, 'sing-box 配置校验失败: ' .. config)
+  check = quote(binary) .. ' run -test -c ' .. quote(config)
+
+ end
+ if check then
+  local output = directory .. '/validation.log'
+  if sys.call(check .. ' >' .. quote(output) .. ' 2>&1') ~= 0 then
+   local detail = (fs.readfile(output) or ''):gsub('%s+$', '')
+   api.log_debug('核心', detail)
+   local reason
+   for line in detail:gmatch('[^\r\n]+') do reason = line end
+   error((binary:match('[^/]+$') or binary) .. ' 配置校验失败：' .. (reason or '未知原因'), 0)
+  end
  elseif config and config:match('%.json$') then
   read(config)
  end
@@ -70,11 +81,11 @@ local function ports_ready(instance)
  if not config or not config:match('%.json$') then return true end
  local data = read(config)
  for _, inbound in ipairs(data.inbounds or {}) do
-  local port = inbound.port or inbound.listen_port
+  local port = inbound.port
   if port then
-   local protocol = inbound.protocol or inbound.type
+   local protocol = inbound.protocol
    local network = inbound.network or (inbound.settings or {}).network or 'tcp'
-   if protocol == 'socks' or protocol == 'http' or protocol == 'mixed' or network:find('tcp', 1, true) then
+   if protocol == 'socks' or protocol == 'http' or network:find('tcp', 1, true) then
     if not listening('tcp', port) then return false end
    elseif network == 'udp' and not listening('udp', port) then return false end
   end
@@ -90,6 +101,7 @@ local function status()
  local service = call('list', {name='passwall'}).passwall or {}
  local instances, expected = service.instances or {}, plans(root .. '/processes')
  local all_ready, core_count, core_ready, dns_count, dns_ready = true, 0, true, 0, true
+ local redirect_ready = {tcp=false, udp=false}
  for name, definition in pairs(expected) do
   local running = instances[name] and instances[name].running == true
   all_ready = all_ready and running
@@ -100,6 +112,8 @@ local function status()
   if config and config:match('%.json$') then
    for _, inbound in ipairs(read(config).inbounds or {}) do
     if (inbound.tag or ''):match('^dns') then is_dns = true end
+    if inbound.tag == 'tcp_redir' then redirect_ready.tcp = running and listening('tcp', inbound.port) end
+    if inbound.tag == 'udp_redir' then redirect_ready.udp = running and listening('udp', inbound.port) end
    end
   end
   if not dns_only then core_count = core_count + 1; core_ready = core_ready and running end
@@ -135,16 +149,23 @@ local function status()
  end
  local tcp_expected = (uci:get('passwall', '@global[0]', 'tcp_node') or 'nil') ~= 'nil'
  if tcp_expected and not socks_port then core_ready = false end
+ local function proxy_status(protocol)
+  local node = uci:get('passwall', '@global[0]', protocol .. '_node') or 'nil'
+  if node == 'tcp' then node = uci:get('passwall', '@global[0]', 'tcp_node') or 'nil' end
+  if not enabled or node == 'nil' then return 'disabled' end
+  return running and forwarding and redirect_ready[protocol] and 'running' or 'not_running'
+ end
  local healthy = running and all_ready and forwarding and (not tcp_expected or core_ready) and dns_ready
  return {
+  tcp_status=proxy_status('tcp'), udp_status=proxy_status('udp'),
   service_status=not enabled and 'disabled' or not running and 'not_running' or healthy and 'running' or 'degraded',
-  service_detail=healthy and '运行正常' or running and '部分服务尚未就绪' or '服务已停止',
+  service_detail=healthy and '' or running and '部分服务尚未就绪' or '服务已停止',
   forwarding_mode=pbr and 'PBR' or 'TPROXY', forwarding_status=forwarding and 'ready' or 'not_ready',
   forwarding_detail=forwarding and 'IPv4 / IPv6 转发已就绪' or '转发规则或路由尚未就绪',
   core_status=core_count == 0 and 'not_required' or core_ready and 'running' or 'not_running',
   core_detail=socks ~= '' and ('SOCKS ' .. socks) or '未启用本地 SOCKS',
   dns_status=not running and 'not_running' or dns_ready and (dns_count > 0 and 'running' or 'configured') or 'not_running',
-  dns_detail=local_dns,
+  dns_detail=local_dns, last_error=(fs.readfile(root .. '/last_error') or ''):gsub('%s+$', ''),
   tcp_port=runtime('TCP_REDIR_PORT'), udp_port=runtime('UDP_REDIR_PORT')
  }
 end
@@ -194,4 +215,12 @@ local ok, err = pcall(function()
   error('核心或 DNS 进程未就绪')
  else error('Unknown process operation') end
 end)
-if not ok then io.stderr:write(tostring(err), '\n'); os.exit(1) end
+if not ok then
+ local message = tostring(err)
+ if action ~= 'status' then
+  fs.writefile(root .. '/last_error', message)
+  api.log('核心', message)
+ end
+ io.stderr:write(message, '\n')
+ os.exit(1)
+end

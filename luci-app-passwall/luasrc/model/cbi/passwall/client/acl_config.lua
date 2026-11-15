@@ -28,15 +28,15 @@ end
 
 m = Map(appname)
 
-s = m:section(NamedSection, arg[1], translate("ACLs"))
+s = m:section(NamedSection, arg[1], translate("访问控制"))
 s.addremove = false
 s.dynamic = false
 
-o = s:option(Flag, "enabled", translate("Enable"))
+o = s:option(Flag, "enabled", translate("启用"))
 o.default = 1
 o.rmempty = false
 
-o = s:option(Value, "remarks", translate("Remarks"))
+o = s:option(Value, "remarks", translate("备注"))
 o.default = arg[1]
 o.rmempty = true
 
@@ -48,11 +48,11 @@ table.sort(mac_hints, function(a, b)
 	return a.mac < b.mac
 end)
 
-sources = s:option(DynamicList, "sources", translate("Device MAC Addresses"),
-	translate("Only MAC addresses are supported. One ACL can contain multiple directly connected LAN, Wi-Fi, bridge or VLAN devices."))
+sources = s:option(DynamicList, "sources", translate("设备 MAC 地址"),
+	translate("仅支持 MAC 地址，可填多个直连的 LAN、Wi-Fi、网桥或 VLAN 设备。"))
 sources.cast = "string"
 for _, hint in ipairs(mac_hints) do
-	sources:value(hint.mac, string.format("%s (%s)", hint.mac, hint.ip))
+	sources:value(hint.mac, string.format("%s（%s）", hint.mac, hint.ip))
 end
 sources.cfgvalue = function(self, section)
 	local value
@@ -73,7 +73,7 @@ end
 sources.validate = function(self, value, section)
 	for _, item in ipairs(value) do
 		if not datatypes.macaddr(item) then
-			self:add_error(section, "invalid", translate("Only valid MAC addresses are accepted: ") .. item)
+			self:add_error(section, "invalid", translate("无效 MAC 地址：") .. item)
 			return nil
 		end
 	end
@@ -81,8 +81,8 @@ sources.validate = function(self, value, section)
 end
 sources.write = dynamic_list_write
 
-direct = s:option(Flag, "direct", translate("Direct"),
-	translate("Completely bypass Passwall for these devices, including TCP, UDP, DNS hijack and ping hijack. Direct takes priority over every normal ACL."))
+direct = s:option(Flag, "direct", translate("直连"),
+	translate("绕过 TCP/UDP 代理及 DNS、Ping 劫持；优先级高于普通访问控制规则。"))
 direct.default = "0"
 direct.rmempty = false
 
@@ -90,10 +90,10 @@ local function add_port_option(key, title, global_key, description, values)
 	local global_value = uci:get(appname, "@global_forwarding[0]", global_key) or "disable"
 	local option = s:option(Value, key, title, description)
 	option.default = "default"
-	option:value("disable", translate("No patterns are used"))
-	option:value("default", translate("Use global config") .. " (" .. global_value .. ")")
+	option:value("disable", translate("不使用"))
+	option:value("default", translate("使用全局配置") .. "（" .. global_value .. "）")
 	for _, value in ipairs(values or {}) do
-		option:value(value, value == "1:65535" and translate("All") or value)
+		option:value(value, value == "1:65535" and translate("全部") or value)
 	end
 	option.validate = port_validate
 	option:depends("direct", "0")
@@ -101,18 +101,18 @@ local function add_port_option(key, title, global_key, description, values)
 	return option
 end
 
-add_port_option("tcp_no_redir_ports", translate("TCP Bypass Ports"), "tcp_no_redir_ports",
-	translate("These ports bypass Passwall before destination policy is evaluated."), { "1:65535" })
-add_port_option("udp_no_redir_ports", translate("UDP Bypass Ports"), "udp_no_redir_ports",
-	translate("These ports bypass Passwall before destination policy is evaluated."), { "1:65535" })
-add_port_option("tcp_proxy_drop_ports", translate("TCP Proxy Drop Ports"), "tcp_proxy_drop_ports",
-	translate("Drop only when the shared Global Policy classifies the destination as PROXY."))
-add_port_option("udp_proxy_drop_ports", translate("UDP Proxy Drop Ports"), "udp_proxy_drop_ports",
-	translate("Drop only when the shared Global Policy classifies the destination as PROXY."), { "443" })
-add_port_option("tcp_redir_ports", translate("TCP Proxy Ports"), "tcp_redir_ports",
-	translate("TCP transparent proxying uses TPROXY."),
+add_port_option("tcp_no_redir_ports", translate("TCP 不代理端口"), "tcp_no_redir_ports",
+	translate("这些端口优先绕过 Passwall。"), { "1:65535" })
+add_port_option("udp_no_redir_ports", translate("UDP 不代理端口"), "udp_no_redir_ports",
+	translate("这些端口优先绕过 Passwall。"), { "1:65535" })
+add_port_option("tcp_proxy_drop_ports", translate("TCP 代理丢弃端口"), "tcp_proxy_drop_ports",
+	translate("仅当共享全局策略将目标判定为代理时丢弃。"))
+add_port_option("udp_proxy_drop_ports", translate("UDP 代理丢弃端口"), "udp_proxy_drop_ports",
+	translate("仅当共享全局策略将目标判定为代理时丢弃。"), { "443" })
+add_port_option("tcp_redir_ports", translate("TCP 代理端口"), "tcp_redir_ports",
+	translate("TCP 透明代理使用 TPROXY。"),
 	{ "1:65535", "80,443", "80:65535", "1:443" })
-add_port_option("udp_redir_ports", translate("UDP Proxy Ports"), "udp_redir_ports", nil,
+add_port_option("udp_redir_ports", translate("UDP 代理端口"), "udp_redir_ports", nil,
 	{ "1:65535", "53" })
 
 return m

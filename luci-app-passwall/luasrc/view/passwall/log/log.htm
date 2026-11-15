@@ -1,31 +1,130 @@
-<%
-local api = require "luci.passwall.api"
--%>
+<% local api = require "luci.passwall.api" -%>
+<fieldset class="cbi-section">
+	<legend><%:日志查看%></legend>
+	<div class="cbi-value">
+		<label class="cbi-value-title" for="log_source"><%:日志类型%></label>
+		<div class="cbi-value-field">
+			<select id="log_source" class="cbi-input-select">
+				<option value="runtime"><%:运行日志%></option>
+				<option value="TCP">TCP <%:核心%></option>
+				<option value="UDP">UDP <%:核心%></option>
+			</select>
+			<button id="log_pause" class="btn cbi-button" type="button"><%:暂停刷新%></button>
+			<button id="log_clear" class="btn cbi-button cbi-button-remove" type="button"><%:清空日志%></button>
+			<div id="log_feedback" role="status" aria-live="polite"></div>
+		</div>
+	</div>
+	<textarea id="log_textarea" class="cbi-input-textarea" style="width:100%" rows="25" wrap="off" readonly="readonly"></textarea>
+</fieldset>
 <script type="text/javascript">
-	//<![CDATA[
-	function clearlog(btn) {
-		XHR.get('<%=api.url("clear_log")%>', null,
-			function(x, data) {
-				if(x && x.status == 200) {
-					var log_textarea = document.getElementById('log_textarea');
-					log_textarea.innerHTML = "";
-					log_textarea.scrollTop = log_textarea.scrollHeight;
-				}
-			}
-		);
+(function() {
+	var source = document.getElementById('log_source');
+	var pauseButton = document.getElementById('log_pause');
+	var clearButton = document.getElementById('log_clear');
+	var output = document.getElementById('log_textarea');
+	var feedback = document.getElementById('log_feedback');
+	var paused = false;
+	var clearBusy = false;
+	var viewVersion = 0;
+	var nextRequestId = 0;
+	var activeRequest = null;
+	var initialSource = new URLSearchParams(window.location.search).get('source');
+	if (initialSource === 'TCP' || initialSource === 'UDP') source.value = initialSource;
+
+	function updateClearButton() {
+		clearButton.disabled = source.value !== 'runtime' || clearBusy;
 	}
 
-	XHR.poll(5, '<%=api.url("get_log")%>', null,
-		function(x, data) {
-			if(x && x.status == 200) {
-				var log_textarea = document.getElementById('log_textarea');
-				log_textarea.innerHTML = x.responseText;
+	function logUrl(name) {
+		if (name === 'runtime')
+			return '<%=api.url("get_log")%>';
+
+		return '<%=api.url("get_redir_log")%>?proto=' + encodeURIComponent(name);
+	}
+
+	function refresh() {
+		var name = source.value;
+		if (paused || (clearBusy && name === 'runtime'))
+			return;
+
+		if (activeRequest && activeRequest.version === viewVersion)
+			return;
+
+		var request = { id: ++nextRequestId, version: viewVersion, name: name };
+		activeRequest = request;
+		XHR.get(logUrl(name), null, function(xhr) {
+			if (activeRequest && activeRequest.id === request.id)
+				activeRequest = null;
+
+			if (paused || request.version !== viewVersion || request.name !== source.value)
+				return;
+
+			if (!xhr) {
+				feedback.textContent = '读取失败';
+				return;
 			}
-		}
-	);
-	//]]>
+
+			var follow = output.scrollHeight - output.scrollTop - output.clientHeight < 32;
+			var scrollTop = output.scrollTop;
+			output.value = xhr.responseText || '';
+			output.scrollTop = follow ? output.scrollHeight : scrollTop;
+			if (xhr.status !== 200)
+				feedback.textContent = '读取失败（HTTP ' + xhr.status + '）';
+			else if (output.value || feedback.textContent.indexOf('读取失败') === 0)
+				feedback.textContent = '';
+		});
+	}
+
+	source.addEventListener('change', function() {
+		viewVersion++;
+		activeRequest = null;
+		output.value = '';
+		output.scrollTop = 0;
+		feedback.textContent = '';
+		updateClearButton();
+		refresh();
+	});
+
+	pauseButton.addEventListener('click', function() {
+		paused = !paused;
+		viewVersion++;
+		activeRequest = null;
+		pauseButton.textContent = paused ? '继续刷新' : '暂停刷新';
+		if (!paused)
+			refresh();
+	});
+
+	clearButton.addEventListener('click', function() {
+		if (source.value !== 'runtime' || clearBusy)
+			return;
+
+		clearBusy = true;
+		updateClearButton();
+		viewVersion++;
+		activeRequest = null;
+		var clearVersion = viewVersion;
+		feedback.textContent = '';
+		XHR.get('<%=api.url("clear_log")%>', null, function(xhr) {
+			clearBusy = false;
+			updateClearButton();
+			if (clearVersion !== viewVersion || source.value !== 'runtime')
+				return;
+
+			if (xhr && xhr.status === 200) {
+				output.value = '';
+				output.scrollTop = 0;
+				feedback.textContent = '已清空';
+			} else {
+				feedback.textContent = '清空失败';
+			}
+
+			if (!paused)
+				refresh();
+		});
+	});
+
+	updateClearButton();
+	refresh();
+	window.setInterval(refresh, 5000);
+})();
 </script>
-<fieldset class="cbi-section" id="_log_fieldset">
-	<input class="btn cbi-button cbi-button-remove" type="button" onclick="clearlog()" value="<%:Clear logs%>" />
-	<textarea id="log_textarea" class="cbi-input-textarea" style="width: 100%;margin-top: 10px;" data-update="change" rows="40" wrap="off" readonly="readonly"></textarea>
-</fieldset>

@@ -20,12 +20,12 @@ function s.remove(e, t)
 end
 
 ---- Enable
-o = s:option(Flag, "enabled", translate("Enable"))
+o = s:option(Flag, "enabled", translate("启用"))
 o.default = 1
 o.rmempty = false
 
 ---- Remarks
-o = s:option(Value, "remarks", translate("Remarks"))
+o = s:option(Value, "remarks", translate("备注"))
 o.rmempty = true
 
 local mac_t = {}
@@ -36,7 +36,7 @@ sys.net.mac_hints(function(e, t)
 	}
 end)
 
-o = s:option(DummyValue, "sources", translate("Device MAC Addresses"))
+o = s:option(DummyValue, "sources", translate("设备 MAC 地址"))
 o.rawhtml = true
 o.cfgvalue = function(t, n)
 	local e = ''
@@ -45,12 +45,12 @@ o.cfgvalue = function(t, n)
 		local a = w
 		local hint = mac_t[w:upper()]
 		if hint then
-			a = a .. ' (' .. hint.ip .. ')'
+			a = a .. '（' .. hint.ip .. '）'
 		end
 		if #e > 0 then
 			e = e .. "<br />"
 		end
-		e = e .. a
+		e = e .. require("luci.xml").pcdata(a)
 	end)
 	return e
 end

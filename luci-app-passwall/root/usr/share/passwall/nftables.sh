@@ -154,7 +154,7 @@ setup_sets() {
 	nft_emit "add set $NFTABLE_NAME $NFTSET_DIRECT_MACS { type ether_addr; }"
 
 	local shunt_id shunt_ids
-	shunt_ids=$(uci show "$CONFIG" | grep '=shunt_rules' | cut -d. -f2 | cut -d= -f1)
+	shunt_ids=$(config_ids shunt_rules)
 	for shunt_id in $shunt_ids; do
 		# Old Geo rules must be skipped as a whole, matching the core and DNS generators.
 		if { config_n_get "$shunt_id" source | tr " " "\n"; config_n_get "$shunt_id" domain_list; config_n_get "$shunt_id" ip_list; } |
@@ -196,9 +196,14 @@ filter_vps_addr() {
 	return 0
 }
 
+node_addresses() {
+	local node
+	for node in $(config_ids nodes); do config_n_get "$node" address; done
+}
+
 filter_vpsip() {
-	insert_nftset "$NFTSET_VPSLIST" -1 $(uci show "$CONFIG" | grep '.address=' | cut -d "'" -f2 | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$')
-	insert_nftset "$NFTSET_VPSLIST6" -1 $(uci show "$CONFIG" | grep '.address=' | cut -d "'" -f2 | grep -E ':')
+	insert_nftset "$NFTSET_VPSLIST" -1 $(node_addresses | grep -E '^([0-9]{1,3}\.){3}[0-9]{1,3}$')
+	insert_nftset "$NFTSET_VPSLIST6" -1 $(node_addresses | grep -E ':')
 }
 
 setup_proxy_actions() {
@@ -361,7 +366,7 @@ mac_match() {
 }
 
 acl_ids() {
-	uci show "$CONFIG" | grep '=acl_rule' | cut -d. -f2 | cut -d= -f1
+	config_ids acl_rule
 }
 
 acl_value() {
@@ -392,7 +397,7 @@ setup_acl() {
 		sources=$(config_n_get "$sid" sources)
 		macs=$(mac_match "$sources")
 		[ -n "$macs" ] || {
-			echolog "  - ACL[$sid] 未包含有效 MAC，非 MAC source 已忽略。"
+			echolog 转发 "设备策略[$sid] 没有有效 MAC 地址，已跳过"
 			continue
 		}
 		chain="PSW_ACL_$(echo "$sid" | tr -cd 'A-Za-z0-9_')"
@@ -407,7 +412,7 @@ setup_acl() {
 		nft_emit "add rule $NFTABLE_NAME PSW_MANGLE $macs counter goto $chain"
 		nft_emit "add rule $NFTABLE_NAME PSW_MANGLE_V6 $macs counter goto $chain"
 		remarks=$(config_n_get "$sid" remarks "$sid")
-		echolog "  - ACL[$remarks]：MAC + 独立端口，目的策略/节点/DNS复用全局。"
+		debuglog 转发 "设备策略：$remarks"
 	done
 }
 
@@ -563,7 +568,7 @@ setup_node_bypass() {
 	filter_vpsip
 	filter_vps_addr "$(config_n_get "$TCP_NODE" address)" "$(config_n_get "$UDP_NODE" address)"
 
-	# sing-box/Xray may bind an outbound to a dedicated interface. Preserve the
+	# Xray may bind an outbound to a dedicated interface. Preserve the
 	# interface bypass in addition to address-based VPS sets to prevent loops.
 	local iface
 	for iface in $(ls "$TMP_IFACE_PATH" 2>/dev/null); do
@@ -633,7 +638,7 @@ nft_prepare() {
 	nft_generate > "$1/rules.nft" || return 1
 	nft_batch "$1/rules.nft" > "$1/batch.nft" || return 1
 	if ! nft -c -f "$1/batch.nft" 2> "$1/nft.error"; then
-		echolog "nftables 候选规则检查失败：$(cat "$1/nft.error")"
+		echolog 转发 "规则校验失败：$(cat "$1/nft.error")"
 		return 1
 	fi
 }
@@ -642,7 +647,7 @@ nft_commit() {
 	# fw4 may have removed the table since --check. Re-evaluate existence here.
 	nft_batch "$1/rules.nft" > "$1/batch.nft" || return 1
 	if ! nft -f "$1/batch.nft" 2> "$1/nft.error"; then
-		echolog "nftables 提交失败，保留原规则：$(cat "$1/nft.error")"
+		echolog 转发 "规则提交失败，保留原规则：$(cat "$1/nft.error")"
 		return 1
 	fi
 }
@@ -681,7 +686,7 @@ nft_routes() {
 			if [ ! -e "/sys/class/net/$iproute_shunt_interface" ] ||
 				[ "$(cat "/sys/class/net/$iproute_shunt_interface/operstate")" = down ]; then
 				ip -$family route del default metric 100 table "$PROXY_ROUTE_TABLE" 2>/dev/null || :
-				echolog "PBR 接口 $iproute_shunt_interface 未就绪，IPv$family 代理暂不可达。"
+				echolog 转发 "PBR 接口 $iproute_shunt_interface 未就绪，IPv$family 代理暂不可达"
 			else
 				ip -$family route replace default via "$gateway" dev "$iproute_shunt_interface" metric 100 table "$PROXY_ROUTE_TABLE" || return 1
 			fi

@@ -1,0 +1,66 @@
+<%
+local api = require "luci.passwall.api"
+local xml = require "luci.xml"
+local config = self.map
+local section_id = section
+local field = self.option
+
+local function get(option)
+	return config:get(section_id, option) or ""
+end
+
+local function escape(value)
+	local result = xml.pcdata(tostring(value or ""))
+	result = result:gsub('"', "&quot;")
+	result = result:gsub("'", "&#39;")
+	return result
+end
+-%>
+<%+cbi/valueheader%>
+<% if field == "remarks" then
+	local node_type = get("type")
+	local protocol = get("protocol")
+	local remarks = get("remarks")
+	local group = get("group")
+	local address = get("address")
+	local port = get("port")
+	local show_info = config:get("@global_other[0]", "show_node_info") == "1"
+
+	if node_type == "Xray" then
+		local xray_protocols = {
+			_balancing = translate("Balancing"),
+			_shunt = translate("Shunt"),
+			socks = "SOCKS",
+			http = "HTTP",
+			vmess = "VMess",
+			vless = "VLESS",
+			shadowsocks = "Shadowsocks",
+			trojan = "Trojan",
+			wireguard = "WireGuard"
+		}
+		local protocol_label = xray_protocols[protocol]
+		if protocol_label then
+			node_type = node_type .. " " .. protocol_label
+		end
+	end
+	node_type = translate(node_type)
+	local address_port = address
+	if address:find(":", 1, true) then
+		address_port = "[" .. address .. "]:" .. port
+	else
+		address_port = address .. ":" .. port
+	end
+%>
+	<span class="node-type" data-node-section="<%=escape(section_id)%>"><%=escape(node_type)%></span>
+	<% if remarks ~= "" then %><span class="node-remarks">：<%=escape(remarks)%></span><% end %>
+	<% if group ~= "" then %><span class="node-group">（<%=escape(group)%>）</span><% end %>
+	<% if show_info and address ~= "" and port ~= "" then %><span class="node-address">（<%=escape(address_port)%>）</span><% end %>
+<% elseif field == "ping" or field == "tcping" or field == "_url_test" then
+	local address = get("address")
+	local port = get("port")
+	local test_type = field == "_url_test" and "url" or (field == "tcping" and "tcping" or "icmp")
+%>
+	<a href="#" data-node-action="test" data-test="<%=test_type%>" data-section="<%=escape(section_id)%>" data-address="<%=escape(address)%>" data-port="<%=escape(port)%>" aria-disabled="false">测试</a>
+	<span class="node-test-result" aria-live="polite"></span>
+<% end %>
+<%+cbi/valuefooter%>

@@ -1,6 +1,5 @@
 local api = require "luci.passwall.api"
 local appname = "passwall"
-local datatypes = api.datatypes
 
 m = Map(appname)
 
@@ -8,12 +7,8 @@ m = Map(appname)
 s = m:section(TypedSection, "global_other")
 s.anonymous = true
 
-o = s:option(Flag, "show_node_info", translate("Show server address and port"))
+o = s:option(Flag, "show_node_info", translate("显示地址和端口"))
 o.default = "0"
-
-s:append(Template(appname .. "/node_list/nodes_actions"))
-
-local show_node_info = m:get("@global_other[0]", "show_node_info") or "0"
 
 -- [[ Node List ]]--
 s = m:section(TypedSection, "nodes")
@@ -21,105 +16,41 @@ s.anonymous = true
 s.addremove = true
 s.template = "cbi/tblsection"
 s.extedit = api.url("node_config", "%s")
+s.template_addremove = appname .. "/node_list/nodes_actions"
+
 function s.create(e, t)
 	local uuid = api.gen_short_uuid()
-	t = uuid
-	TypedSection.create(e, t)
-	luci.http.redirect(e.extedit:format(t))
+	TypedSection.create(e, uuid)
+	luci.http.redirect(api.url("node_config", uuid))
 end
 
 function s.remove(e, t)
 	TypedSection.remove(e, t)
-	local new_node = "nil"
-	local node0 = m:get("@nodes[0]") or nil
-	if node0 then
-		new_node = node0[".name"]
-	end
+	local new_node = m.uci:get_first(appname, "nodes") or "nil"
 	if (m:get("@global[0]", "tcp_node") or "nil") == t then
-		m:set('@global[0]', "tcp_node", new_node)
+		m:set("@global[0]", "tcp_node", new_node)
 	end
 	if (m:get("@global[0]", "udp_node") or "nil") == t then
-		m:set('@global[0]', "udp_node", new_node)
+		m:set("@global[0]", "udp_node", new_node)
 	end
 end
 
 s.sortable = true
-o = s:option(DummyValue, "remarks", translate("Remarks"))
-o.rawhtml = true
-o.cfgvalue = function(t, n)
-	local str = ""
-	local group = m:get(n, "group") or ""
-	local remarks = m:get(n, "remarks") or ""
-	local type = m:get(n, "type") or ""
-	str = str .. string.format("<input type='hidden' id='cbid.%s.%s.type' value='%s'/>", appname, n, type)
-	if type == "sing-box" or type == "Xray" then
-		local protocol = m:get(n, "protocol")
-		if protocol == "_balancing" then
-			protocol = translate("Balancing")
-		elseif protocol == "_shunt" then
-			protocol = translate("Shunt")
-		elseif protocol == "vmess" then
-			protocol = "VMess"
-		elseif protocol == "vless" then
-			protocol = "VLESS"
-		elseif protocol == "shadowsocks" then
-			protocol = "SS"
-		elseif protocol == "shadowsocksr" then
-			protocol = "SSR"
-		elseif protocol == "wireguard" then
-			protocol = "WG"
-		elseif protocol == "hysteria" then
-			protocol = "HY"
-		elseif protocol == "hysteria2" then
-			protocol = "HY2"
-		else
-			protocol = protocol:gsub("^%l",string.upper)
-		end
-		if type == "sing-box" then type = "Sing-Box" end
-		type = type .. " " .. protocol
+
+local function add_cell(option_name, title, width)
+	local option = s:option(DummyValue, option_name, title)
+	option.template = appname .. "/node_list/node_cell"
+	option.width = width
+	option.cfgvalue = function(self, section)
+		return self.map:get(section, option_name) or ""
 	end
-	local address = m:get(n, "address") or ""
-	local port = m:get(n, "port") or ""
-	str = str .. translate(type) .. "：" .. remarks
-	if group ~= "" then
-		str = str .. " (" .. group .. ")"
-	end
-	if address ~= "" and port ~= "" then
-		if show_node_info == "1" then
-			if datatypes.ip6addr(address) then
-				str = str .. string.format("（[%s]:%s）", address, port)
-			else
-				str = str .. string.format("（%s:%s）", address, port)
-			end
-		end
-		str = str .. string.format("<input type='hidden' id='cbid.%s.%s.address' value='%s'/>", appname, n, address)
-		str = str .. string.format("<input type='hidden' id='cbid.%s.%s.port' value='%s'/>", appname, n, port)
-	end
-	return str
+	return option
 end
 
----- Ping
-o = s:option(DummyValue, "ping", "Ping")
-o.width = "8%"
-o.rawhtml = true
-o.cfgvalue = function(t, n)
-	return string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:ping_node(\'%s\', this, \'icmp\')">%s</a></span>', n, translate("Test"))
-end
-
----- TCP Ping
-o = s:option(DummyValue, "tcping", "TCPing")
-o.width = "8%"
-o.rawhtml = true
-o.cfgvalue = function(t, n)
-	return string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:ping_node(\'%s\', this, \'tcping\')">%s</a></span>', n, translate("Test"))
-end
-
-o = s:option(DummyValue, "_url_test", translate("URL Test"))
-o.width = "8%"
-o.rawhtml = true
-o.cfgvalue = function(t, n)
-	return string.format('<span class="ping"><a href="javascript:void(0)" onclick="javascript:urltest_node(\'%s\', this)">%s</a></span>', n, translate("Test"))
-end
+add_cell("remarks", translate("节点"))
+add_cell("ping", "连通性", "6em")
+add_cell("tcping", "TCP 延迟", "7em")
+add_cell("_url_test", translate("代理延迟"), "6em")
 
 m:append(Template(appname .. "/node_list/node_list"))
 

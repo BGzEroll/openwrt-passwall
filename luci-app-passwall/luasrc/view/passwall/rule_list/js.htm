@@ -3,16 +3,103 @@ local api = require "luci.passwall.api"
 -%>
 <script type="text/javascript">
 	//<![CDATA[
-	let dom = document.getElementById("cbi-passwall-global_rules");
-	if (dom) {
-		let textareas = dom.getElementsByTagName("textarea");
-		for (let i = 0; i < textareas.length; i++) {
-			let o = textareas[i];
-			if (o.readOnly) {
-				o.removeAttribute("name");
-				o.removeAttribute("id");
+	(function() {
+		var ruleListUrl = '<%=api.url("get_rule_list")%>';
+
+		function responseData(xhr, data) {
+			if (data && typeof data === "object")
+				return data;
+
+			try {
+				return JSON.parse(typeof data === "string" ? data : xhr.responseText);
+			} catch (e) {
+				return null;
 			}
 		}
-	}
+
+		function findRulePane(node, tabName) {
+			while (node && node !== document) {
+				if (node.getAttribute && node.getAttribute("data-tab") === tabName && node.hasAttribute("data-tab-title"))
+					return node;
+				node = node.parentNode;
+			}
+			return null;
+		}
+
+		function formatTimestamp(value) {
+			var timestamp = Number(value);
+			if (value != null && value !== "" && isFinite(timestamp)) {
+				var date = new Date(timestamp * 1000);
+				if (!isNaN(date.getTime()))
+					return date.toLocaleString();
+			}
+			return String(value);
+		}
+
+		function loadRuleList(root) {
+			if (root._ruleLoading || root._ruleLoaded)
+				return;
+
+			var name = root.getAttribute("data-rule-name");
+			var textarea = root.querySelector("textarea[readonly]");
+			var summary = root.querySelector(".passwall-rule-summary");
+			var status = root.querySelector(".passwall-rule-status");
+			if (!name || !textarea || !summary || !status)
+				return;
+
+			root._ruleLoading = true;
+			var epoch = root._ruleEpoch || 0;
+			status.textContent = "正在读取完整列表…";
+			XHR.get(ruleListUrl, { name: name }, function(xhr, data) {
+				root._ruleLoading = false;
+				if (epoch !== (root._ruleEpoch || 0)) {
+					var pane = findRulePane(root, root.getAttribute('data-rule-tab'));
+					if (pane && pane.getAttribute('data-tab-active') === 'true') loadRuleList(root);
+					return;
+				}
+				var result = responseData(xhr, data);
+				if (!xhr || xhr.status !== 200 || !result || typeof result.content !== "string") {
+					status.textContent = "读取失败" + (xhr && xhr.status ? "（HTTP " + xhr.status + "）" : "");
+					return;
+				}
+
+				textarea.value = result.content;
+				root._ruleLoaded = true;
+				var details = [];
+				if (result.count != null)
+					details.push("条目：" + result.count);
+				if (result.updated_at)
+					details.push("更新时间：" + formatTimestamp(result.updated_at));
+				if (details.length)
+					summary.textContent = details.join("；");
+				status.textContent = result.count != null ? "已加载 " + result.count + " 条规则" : "已加载完整列表";
+			});
+		}
+
+		var lists = document.querySelectorAll(".passwall-rule-lazy-list[data-rule-name]");
+		document.addEventListener('passwall-rules-updated', function() {
+			lists.forEach(function(list) {
+				list._ruleEpoch = (list._ruleEpoch || 0) + 1;
+				list._ruleLoaded = false;
+				var pane = findRulePane(list, list.getAttribute('data-rule-tab'));
+				if (pane && pane.getAttribute('data-tab-active') === 'true') loadRuleList(list);
+			});
+		});
+		for (var i = 0; i < lists.length; i++) {
+			var list = lists[i];
+			var pane = findRulePane(list, list.getAttribute("data-rule-tab"));
+			if (!pane)
+				continue;
+
+			(function(rulePane, ruleList) {
+				rulePane.addEventListener("cbi-tab-active", function() {
+					loadRuleList(ruleList);
+				});
+
+				if (rulePane.getAttribute("data-tab-active") === "true")
+					loadRuleList(ruleList);
+			})(pane, list);
+		}
+	})();
 	//]]>
 </script>

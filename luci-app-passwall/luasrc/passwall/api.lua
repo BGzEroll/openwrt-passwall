@@ -14,13 +14,29 @@ curl_args = { "-skfL", "--connect-timeout 3", "--retry 3" }
 
 LOG_FILE = "/tmp/log/" .. appname .. ".log"
 
-function log(...)
-	local result = os.date("%Y-%m-%d %H:%M:%S: ") .. table.concat({...}, " ")
-	local f, err = io.open(LOG_FILE, "a")
-	if f and err == nil then
-		f:write(result .. "\n")
+function log(component, ...)
+	local message = table.concat({...}, " "):gsub("[\r\n]+", " ")
+	local f = io.open(LOG_FILE, "a")
+	if f then
+		f:write(os.date("%Y-%m-%d %H:%M:%S") .. " [" .. component .. "] " .. message .. "\n")
 		f:close()
 	end
+end
+
+local debug_logging
+function log_debug(component, ...)
+	if debug_logging == nil then debug_logging = uci:get_first(appname, "global", "log_debug", "0") == "1" end
+	if debug_logging then log(component, ...) end
+end
+
+function normalize_domain(value)
+	local domain = (value or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower():gsub("%.$", "")
+	return domain
+end
+
+function domain_matches(value, suffix)
+	value, suffix = normalize_domain(value), normalize_domain(suffix)
+	return suffix ~= "" and (value == suffix or value:sub(-#suffix - 1) == "." .. suffix)
 end
 
 -- Reject the whole old rule so removing a Geo selector cannot widen its match.
@@ -80,7 +96,7 @@ function curl_base(url, file, args)
 	if file then
 		args[#args + 1] = "-o " .. file
 	end
-	local cmd = string.format('curl %s "%s"', table_join(args), url)
+	local cmd = string.format('curl %s -- %s', table_join(args), util.shellquote(url))
 	return exec_call(cmd)
 end
 
@@ -243,11 +259,10 @@ function get_valid_nodes()
 	local nodes = {}
 	uci:foreach(appname, "nodes", function(e)
 		e.id = e[".name"]
-		if e.type and e.remarks then
+		if e.type == "Xray" and e.remarks then
 			if e.protocol and (e.protocol == "_balancing" or e.protocol == "_shunt" or e.protocol == "_iface") then
 				local type = e.type
-				if type == "sing-box" then type = "Sing-Box" end
-				e["remark"] = "%s：[%s] " % {type .. " " .. i18n.translatef(e.protocol), e.remarks}
+				e["remark"] = "%s：%s" % {type .. " " .. i18n.translatef(e.protocol), e.remarks}
 				e["node_type"] = "special"
 				nodes[#nodes + 1] = e
 			end
@@ -255,32 +270,29 @@ function get_valid_nodes()
 				local address = e.address
 				if is_ip(address) or datatypes.hostname(address) then
 					local type = e.type
-					if (type == "sing-box" or type == "Xray") and e.protocol then
+					if e.protocol then
 						local protocol = e.protocol
-						if protocol == "vmess" then
+						if protocol == "socks" then
+							protocol = "SOCKS"
+						elseif protocol == "http" then
+							protocol = "HTTP"
+						elseif protocol == "vmess" then
 							protocol = "VMess"
 						elseif protocol == "vless" then
 							protocol = "VLESS"
 						elseif protocol == "shadowsocks" then
 							protocol = "SS"
-						elseif protocol == "shadowsocksr" then
-							protocol = "SSR"
 						elseif protocol == "wireguard" then
 							protocol = "WG"
-						elseif protocol == "hysteria" then
-							protocol = "HY"
-						elseif protocol == "hysteria2" then
-							protocol = "HY2"
 						else
 							protocol = protocol:gsub("^%l",string.upper)
 						end
-						if type == "sing-box" then type = "Sing-Box" end
 						type = type .. " " .. protocol
 					end
 					if is_ipv6(address) then address = get_ipv6_full(address) end
-					e["remark"] = "%s：[%s]" % {type, e.remarks}
+					e["remark"] = "%s：%s" % {type, e.remarks}
 					if show_node_info == "1" then
-						e["remark"] = "%s：[%s] %s:%s" % {type, e.remarks, address, e.port}
+						e["remark"] = "%s：%s（%s:%s）" % {type, e.remarks, address, e.port}
 					end
 					e.node_type = "normal"
 					nodes[#nodes + 1] = e
@@ -296,10 +308,8 @@ function gen_short_uuid()
 end
 
 function uci_get_type(type, config, default)
-	local value = uci:get_first(appname, type, config, default) or sys.exec("echo -n $(uci -q get " .. appname .. ".@" .. type .."[0]." .. config .. ")")
-	if (value == nil or value == "") and (default and default ~= "") then
-		value = default
-	end
+	local value = uci:get_first(appname, type, config)
+	if value == nil or value == "" then return default end
 	return value
 end
 
@@ -409,59 +419,22 @@ function compare_versions(ver1, comp, ver2)
 	return not (comp == "<" or comp == ">")
 end
 
-function luci_types(id, m, s, type_name, option_prefix)
-	local rewrite_option_table = {}
-	for key, value in pairs(s.fields) do
-		if key:find(option_prefix) == 1 then
-			if not s.fields[key].not_rewrite then
-				if s.fields[key].rewrite_option then
-					if not rewrite_option_table[s.fields[key].rewrite_option] then
-						rewrite_option_table[s.fields[key].rewrite_option] = 1
-					else
-						rewrite_option_table[s.fields[key].rewrite_option] = rewrite_option_table[s.fields[key].rewrite_option] + 1
-					end
-				end
-
-				s.fields[key].cfgvalue = function(self, section)
-					if self.rewrite_option then
-						return m:get(section, self.rewrite_option)
-					else
-						if self.option:find(option_prefix) == 1 then
-							return m:get(section, self.option:sub(1 + #option_prefix))
-						end
-					end
-				end
-				s.fields[key].write = function(self, section, value)
-					if s.fields["type"]:formvalue(id) == type_name then
-						if self.rewrite_option then
-							m:set(section, self.rewrite_option, value)
-						else
-							if self.option:find(option_prefix) == 1 then
-								m:set(section, self.option:sub(1 + #option_prefix), value)
-							end
-						end
-					end
-				end
-				s.fields[key].remove = function(self, section)
-					if s.fields["type"]:formvalue(id) == type_name then
-						if self.rewrite_option and rewrite_option_table[self.rewrite_option] == 1 then
-							m:del(section, self.rewrite_option)
-						else
-							if self.option:find(option_prefix) == 1 then
-								m:del(section, self.option:sub(1 + #option_prefix))
-							end
-						end
-					end
-				end
-			end
-
-			local deps = s.fields[key].deps
-			if #deps > 0 then
-				for index, value in ipairs(deps) do
-					deps[index]["type"] = type_name
-				end
-			else
-				s.fields[key]:depends({ type = type_name })
+-- Xray form fields use a prefix only to group protocol-specific controls.
+function xray_fields(m, s)
+	local option_prefix = "xray_"
+	local counts = {}
+	for key, field in pairs(s.fields) do
+		if key:sub(1, #option_prefix) == option_prefix and field.rewrite_option then
+			counts[field.rewrite_option] = (counts[field.rewrite_option] or 0) + 1
+		end
+	end
+	for key, field in pairs(s.fields) do
+		if key:sub(1, #option_prefix) == option_prefix and not field.not_rewrite then
+			local option = field.rewrite_option or key:sub(#option_prefix + 1)
+			field.cfgvalue = function(self, section) return m:get(section, option) end
+			field.write = function(self, section, value) m:set(section, option, value) end
+			field.remove = function(self, section)
+				if not self.rewrite_option or counts[option] == 1 then m:del(section, option) end
 			end
 		end
 	end
