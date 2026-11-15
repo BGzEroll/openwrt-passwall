@@ -232,7 +232,6 @@ PSW_POLICY_V4 / PSW_POLICY_V6
   VPSLIST       -> DIRECT
   Direct List   -> DIRECT
   Block List    -> DROP
-  Fake-IP(v4)   -> PROXY
   Shunt List    -> PROXY
   Proxy List    -> PROXY
   GFW List      -> PROXY

@@ -697,11 +697,16 @@ app_system_set() {
 }
 
 app_system_commit() {
+	local output
 	if [ "$APP_DNS_REDIRECT_CHANGED" = 1 ]; then uci commit dhcp || return 1; fi
 	if [ "$APP_FLOW_OFFLOAD_CHANGED" = 1 ]; then
 		uci commit firewall || return 1
 		# fw4's include must not enqueue another update caused by our own change.
-		PASSWALL_FW_RELOAD=1 /etc/init.d/firewall reload 9>&- || return 1
+		output=$(PASSWALL_FW_RELOAD=1 /etc/init.d/firewall reload 9>&- 2>&1) || {
+			echolog 防火墙 "重载失败：$output"
+			return 1
+		}
+		[ -z "$output" ] || debuglog 防火墙 "$output"
 	fi
 }
 

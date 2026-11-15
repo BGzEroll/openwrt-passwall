@@ -28,7 +28,7 @@ network:value("tcp", "TCP")
 network:value("udp", "UDP")
 
 source = s:option(DynamicList, "source", translate("来源 IP"))
-source.description = translate("仅支持 IPv4 地址，例如 192.168.113.10。")
+source.description = translate("仅支持 IPv4 地址。")
 source.cast = "string"
 source.cfgvalue = function(self, section)
 	local value

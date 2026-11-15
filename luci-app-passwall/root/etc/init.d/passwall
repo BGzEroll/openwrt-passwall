@@ -2,7 +2,7 @@
 
 START=99
 STOP=15
-EXTRA_COMMANDS="update_rules"
+EXTRA_COMMANDS="update_rules running"
 EXTRA_HELP="        update_rules <directory>  Publish downloaded text rules and apply them"
 
 APP_FILE=/usr/share/passwall/app.sh
@@ -40,6 +40,7 @@ boot() {
 	) 9>"$LOCK_FILE"
 }
 
+running() { [ -f /var/run/passwall/running ]; }
 start() { run_service start; }
 stop() { run_service stop; }
 restart() { run_service restart; }

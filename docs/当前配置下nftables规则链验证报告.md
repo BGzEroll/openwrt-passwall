@@ -73,10 +73,9 @@ Passwall 的 mangle/dstnat hook 优先级早于 fw4 对应的默认 hook；表�
 
 1. LAN 地址集合：`mark 0xff` 并直接返回。
 2. 节点地址集合：`mark 0xff` 并直接返回，防止代理回环。
-3. IPv4 FakeDNS 段 `198.18.0.0/16`：直接进入 `PSW_MARK`。
-4. shunt 动态集合：进入 `PSW_MARK`。
-5. chnroute/chnroute6：`mark 0xff` 并直连。
-6. 其余目标返回端口策略，按全局模式进入代理。
+3. shunt 动态集合：进入 `PSW_MARK`。
+4. chnroute/chnroute6：`mark 0xff` 并直连。
+5. 其余目标返回端口策略，按全局模式进入代理。
 
 ### `PSW_DEFAULT_PORTS`
 

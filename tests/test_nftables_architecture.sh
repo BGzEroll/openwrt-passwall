@@ -103,8 +103,9 @@ run_case() {
 
 		# Replace only the unavailable OpenWrt network helper, then exercise the
 		# function-library API that emits the complete candidate table.
-		source <(sed 's#^\. /lib/functions/network.sh$#:#' "$SCRIPT")
+		source <(sed 's#^\. /usr/share/passwall/network.sh$#:#' "$SCRIPT")
 		nft_offload_devices() { echo eth0,eth1; }
+		passwall_proxy_interfaces() { :; }
 		nft_read_config
 		nft_generate > "$TEST_RULES_FILE"
 	)
@@ -170,8 +171,8 @@ grep -q 'icmpv6 type echo-request.*jump PSW_PING' "$OFF"
 ! grep -q 'meta l4proto {icmp,icmpv6}' "$OFF"
 ! grep -q 'PSW_NAT\|PSW_OUTPUT_NAT' "$OFF"
 grep -q 'PSW_DNS_REDIRECT.*redirect to :53' "$OFF"
-grep -q 'PSW_MANGLE meta l4proto { tcp, udp } th dport 53 counter return' "$OFF"
-grep -q 'PSW_MANGLE_V6 meta l4proto { tcp, udp } th dport 53 counter return' "$OFF"
+grep -q 'PSW_MANGLE iifname != "lo" meta l4proto { tcp, udp } th dport 53 counter return' "$OFF"
+grep -q 'PSW_MANGLE_V6 iifname != "lo" meta l4proto { tcp, udp } th dport 53 counter return' "$OFF"
 grep -q 'ct mark != 0x1 flow add @ft' "$ON"
 grep -q 'PSW_HWNAT_PASS meta l4proto { tcp, udp } ct direction original meta mark 0x1 counter flow add @ft' "$ON"
 ! grep -q 'ct direction original meta mark 0x1 counter flow add @ft' "$OFF"
@@ -183,7 +184,7 @@ grep -q 'PSW_ACL_acl_web meta nfproto ipv4 meta l4proto udp udp dport {443} meta
 
 direct_dstnat_line=$(grep -n -m1 'dstnat ether saddr @passwall_direct_macs' "$OFF" | cut -d: -f1)
 ping_dstnat_line=$(grep -n -m1 'dstnat ip protocol icmp icmp type echo-request' "$OFF" | cut -d: -f1)
-dns_dstnat_line=$(grep -n -m1 'dstnat counter jump PSW_DNS_REDIRECT' "$OFF" | cut -d: -f1)
+dns_dstnat_line=$(grep -n -m1 'dstnat iifname != "lo" counter jump PSW_DNS_REDIRECT' "$OFF" | cut -d: -f1)
 [ "$direct_dstnat_line" -lt "$ping_dstnat_line" ]
 [ "$direct_dstnat_line" -lt "$dns_dstnat_line" ]
 

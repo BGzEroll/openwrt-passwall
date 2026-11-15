@@ -27,10 +27,9 @@ NFTSET_BLACKLIST6="passwall_blacklist6"
 NFTSET_WHITELIST6="passwall_whitelist6"
 NFTSET_BLOCKLIST6="passwall_blocklist6"
 
-. /lib/functions/network.sh
+. /usr/share/passwall/network.sh
 
 FWI=$(uci -q get firewall.passwall.path 2>/dev/null)
-FAKE_IP="198.18.0.0/16"
 
 factor() {
 	if [ -z "$1" ] || [ -z "$2" ] || [ "$1" = "1:65535" ]; then
@@ -165,9 +164,12 @@ setup_sets() {
 		insert_nftset "$NFTSET_SHUNTLIST6" -1 $(config_n_get "$shunt_id" ip_list | tr -s '\r\n' '\n' | grep -E ':')
 	done
 
+	local logical_if
 	network_flush_cache
 	add_lan_network lan
-	add_lan_network localproxy
+	for logical_if in $iproute_shunt_logical_interfaces; do
+		[ "$logical_if" = lan ] || add_lan_network "$logical_if"
+	done
 
 	local wan_ip wan6_ip
 	wan_ip=$(get_wan_ip)
@@ -255,7 +257,6 @@ add_global_policy_rules() {
 	nft_emit "add rule $NFTABLE_NAME $chain $daddr @$vps_set counter meta mark set $BYPASS_MARK return"
 	[ "$USE_DIRECT_LIST" = "1" ] && nft_emit "add rule $NFTABLE_NAME $chain $daddr @$direct_set counter meta mark set $BYPASS_MARK return"
 	[ "$USE_BLOCK_LIST" = "1" ] && nft_emit "add rule $NFTABLE_NAME $chain $daddr @$block_set counter drop"
-	[ "$family" = "4" ] && nft_emit "add rule $NFTABLE_NAME $chain $daddr $FAKE_IP counter goto PSW_MARK"
 	nft_emit "add rule $NFTABLE_NAME $chain $daddr @$shunt_set counter goto PSW_MARK"
 	[ "$USE_PROXY_LIST" = "1" ] && nft_emit "add rule $NFTABLE_NAME $chain $daddr @$proxy_set counter goto PSW_MARK"
 	[ "$USE_GFW_LIST" = "1" ] && nft_emit "add rule $NFTABLE_NAME $chain $daddr @$gfw_set counter goto PSW_MARK"
@@ -427,9 +428,10 @@ setup_client_chains() {
 
 	# DNS hijack is a global NAT decision. Let client DNS leave mangle before
 	# any ACL/default TPROXY rule so dstnat can redirect it to the router's DNS.
+	# Marked localhost DNS must still reach TPROXY after routing back through lo.
 	if [ "$(config_t_get global dns_redirect 1)" = "1" ]; then
-		nft_emit "add rule $NFTABLE_NAME PSW_MANGLE meta l4proto { tcp, udp } th dport 53 counter return"
-		nft_emit "add rule $NFTABLE_NAME PSW_MANGLE_V6 meta l4proto { tcp, udp } th dport 53 counter return"
+		nft_emit "add rule $NFTABLE_NAME PSW_MANGLE iifname != \"lo\" meta l4proto { tcp, udp } th dport 53 counter return"
+		nft_emit "add rule $NFTABLE_NAME PSW_MANGLE_V6 iifname != \"lo\" meta l4proto { tcp, udp } th dport 53 counter return"
 	fi
 
 	# Locally generated marked packets return through lo only with local TPROXY.
@@ -490,7 +492,7 @@ setup_dns() {
 	create_chain PSW_DNS_REDIRECT
 	nft_emit "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto udp udp dport 53 counter redirect to :53"
 	nft_emit "add rule $NFTABLE_NAME PSW_DNS_REDIRECT meta l4proto tcp tcp dport 53 counter redirect to :53"
-	nft_emit "add rule $NFTABLE_NAME dstnat counter jump PSW_DNS_REDIRECT"
+	nft_emit "add rule $NFTABLE_NAME dstnat iifname != \"lo\" counter jump PSW_DNS_REDIRECT"
 }
 
 setup_ping() {
@@ -587,7 +589,7 @@ setup_node_bypass() {
 }
 
 nft_offload_devices() {
-	ucode "$APP_PATH/offload.uc"
+	QUIET=1 ucode "$APP_PATH/offload.uc"
 }
 
 nft_read_config() {
@@ -596,8 +598,10 @@ nft_read_config() {
 	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6)
 	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface)
 	iproute_shunt_offloading_interface=""
+	iproute_shunt_logical_interfaces=""
 	if [ "$iproute_shunt" = 1 ]; then
 		iproute_shunt_offloading_interface=$(nft_offload_devices) || return 1
+		iproute_shunt_logical_interfaces=$(passwall_proxy_interfaces "$iproute_shunt_interface")
 	fi
 	accept_icmp=$(config_t_get global_forwarding accept_icmp 1)
 	accept_icmpv6=$(config_t_get global_forwarding accept_icmpv6 1)
@@ -676,6 +680,15 @@ nft_routes_restore() {
 	done
 }
 
+nft_pbr_ready() {
+	local family="$1" device="$2"
+	[ -e "/sys/class/net/$device" ] &&
+		[ "$(cat "/sys/class/net/$device/operstate")" != down ] || return 1
+	# Link-up precedes DHCP and IPv6 DAD. Keep the guard until this family
+	# has a usable address; a later hotplug event will install its gateway.
+	[ -n "$(ip -"$family" -o address show dev "$device" 2>/dev/null | grep -Ev 'tentative|dadfailed')" ]
+}
+
 nft_routes() {
 	local family gateway
 	for family in 4 6; do
@@ -684,8 +697,7 @@ nft_routes() {
 		ip -$family route replace unreachable default metric 32767 table "$PROXY_ROUTE_TABLE" || return 1
 		if [ "$iproute_shunt" = 1 ]; then
 			[ "$family" = 4 ] && gateway="$iproute_shunt_gw_v4" || gateway="$iproute_shunt_gw_v6"
-			if [ ! -e "/sys/class/net/$iproute_shunt_interface" ] ||
-				[ "$(cat "/sys/class/net/$iproute_shunt_interface/operstate")" = down ]; then
+			if ! nft_pbr_ready "$family" "$iproute_shunt_interface"; then
 				ip -$family route del default metric 100 table "$PROXY_ROUTE_TABLE" 2>/dev/null || :
 				echolog 转发 "PBR 接口 $iproute_shunt_interface 未就绪，IPv$family 代理暂不可达"
 			else
@@ -720,13 +732,18 @@ nft_network_snapshot() {
 		printf '%s=%s\n' "$key" "$(config_t_get global_forwarding "$key")"
 	done
 	network_flush_cache
-	for interface in wan wan6 lan localproxy; do
+	for interface in $(printf '%s\n' wan wan6 lan $iproute_shunt_logical_interfaces | sort -u); do
 		network_get_device device "$interface"
 		printf '%s %s\n' "$interface" "$device"
 		[ -n "$device" ] || continue
 		cat "/sys/class/net/$device/ifindex" "/sys/class/net/$device/operstate" 2>/dev/null
 		ip -o address show dev "$device" 2>/dev/null | awk '{print $2, $3, $4}'
 	done
+	if [ "$iproute_shunt" = 1 ]; then
+		printf 'proxy_device=%s\n' "$iproute_shunt_interface"
+		cat "/sys/class/net/$iproute_shunt_interface/ifindex" "/sys/class/net/$iproute_shunt_interface/operstate" 2>/dev/null
+		ip -o address show dev "$iproute_shunt_interface" 2>/dev/null | awk '{print $2, $3, $4}'
+	fi
 	ip -4 route show default
 	ip -6 route show default
 	cat "$RESOLVFILE" 2>/dev/null

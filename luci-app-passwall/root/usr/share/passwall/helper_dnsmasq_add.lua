@@ -6,7 +6,6 @@ local TMP_DNSMASQ_PATH = var["-TMP_DNSMASQ_PATH"]
 local DNSMASQ_CONF_FILE = var["-DNSMASQ_CONF_FILE"]
 local LOCAL_DNS = var["-LOCAL_DNS"]
 local TUN_DNS = var["-TUN_DNS"]
-local REMOTE_FAKEDNS = var["-REMOTE_FAKEDNS"]
 local USE_DEFAULT_DNS = var["-USE_DEFAULT_DNS"]
 local CHINADNS_DNS = var["-CHINADNS_DNS"]
 local TCP_NODE = var["-TCP_NODE"]
@@ -216,11 +215,9 @@ if USE_DEFAULT_DNS ~= "nil" then
 	end
 end
 
-local only_global
 if DEFAULT_PROXY_MODE == "proxy" and CHN_LIST == "0" and USE_GFW_LIST == "0" then
 	--没有启用中国列表和GFW列表时
 	dnsmasq_default_dns = TUN_DNS
-	only_global = 1
 end
 if USE_DEFAULT_DNS == "chinadns_ng" and CHINADNS_DNS ~= "0" then
 	dnsmasq_default_dns = CHINADNS_DNS
@@ -294,9 +291,6 @@ do
 					if line ~= "" and not line:find("#") then
 						add_excluded_domain(line)
 						local ipset_flag = setflag_4 .. "passwall_blacklist," .. setflag_6 .. "passwall_blacklist6"
-						if REMOTE_FAKEDNS == "1" then
-							ipset_flag = nil
-						end
 						set_domain_dns(line, fwd_dns)
 						set_domain_ipset(line, ipset_flag)
 					end
@@ -315,9 +309,6 @@ do
 			end
 			if fwd_dns then
 				local ipset_flag = setflag_4 .. "passwall_gfwlist," .. setflag_6 .. "passwall_gfwlist6"
-				if REMOTE_FAKEDNS == "1" then
-					ipset_flag = nil
-				end
 				for _, line in ipairs(read_lines("/usr/share/passwall/rules/gfwlist")) do
 					line = line:gsub("\r$", "")
 					if line ~= "" and not line:find("^#") and not check_excluded_domain(line) then
@@ -357,11 +348,6 @@ do
 				else
 					fwd_dns = TUN_DNS
 					ipset_flag = setflag_4 .. "passwall_shuntlist," .. setflag_6 .. "passwall_shuntlist6"
-					if not only_global then
-						if REMOTE_FAKEDNS == "1" then
-							ipset_flag = nil
-						end
-					end
 				end
 
 				local domain_list = s.domain_list or ""
