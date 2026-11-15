@@ -575,18 +575,26 @@ setup_node_bypass() {
 	fi
 }
 
+nft_offload_devices() {
+	ucode "$APP_PATH/offload.uc"
+}
+
 nft_read_config() {
 	iproute_shunt=$(config_t_get global_forwarding iproute_shunt 0)
 	iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4)
 	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6)
 	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface)
-	iproute_shunt_offloading_interface=$(config_t_get global_forwarding iproute_shunt_offloading_interface lan1,lan2,lan3,wan)
+	iproute_shunt_offloading_interface=""
+	if [ "$iproute_shunt" = 1 ]; then
+		iproute_shunt_offloading_interface=$(nft_offload_devices) || return 1
+	fi
 	accept_icmp=$(config_t_get global_forwarding accept_icmp 1)
 	accept_icmpv6=$(config_t_get global_forwarding accept_icmpv6 1)
 }
 
 setup_flow_offload() {
 	[ "$iproute_shunt" = 1 ] || return 0
+	[ -n "$iproute_shunt_offloading_interface" ] || return 0
 	create_chain PSW_HWNAT_PASS
 	nft_emit "add flowtable $NFTABLE_NAME ft { hook ingress priority filter - 1; devices = { $iproute_shunt_offloading_interface }; flags offload; counter; }"
 	nft_emit "add rule $NFTABLE_NAME hwnat_pass meta l4proto { tcp, udp } counter jump PSW_HWNAT_PASS"
@@ -617,7 +625,6 @@ nft_batch() {
 }
 
 nft_prepare() {
-	nft_read_config
 	nft_generate > "$1/rules.nft" || return 1
 	nft_batch "$1/rules.nft" > "$1/batch.nft" || return 1
 	if ! nft -c -f "$1/batch.nft" 2> "$1/nft.error"; then
@@ -695,6 +702,7 @@ nft_stop() {
 
 nft_network_snapshot() {
 	local interface device key
+	printf 'offload_devices=%s\n' "$iproute_shunt_offloading_interface"
 	for key in iproute_shunt iproute_shunt_gw_v4 iproute_shunt_gw_v6 iproute_shunt_interface; do
 		printf '%s=%s\n' "$key" "$(config_t_get global_forwarding "$key")"
 	done
@@ -737,7 +745,8 @@ nft_include() {
 	mkdir -p "$(dirname "$FWI")"
 	cat > "$FWI" <<-'EOF'
 	#!/bin/sh
+	[ "${PASSWALL_FW_RELOAD:-0}" != 1 ] || exit 0
 	[ -f /var/run/passwall/running ] || exit 0
-	/etc/init.d/passwall reload firewall >/dev/null 2>&1 &
+	/etc/init.d/passwall reload firewall 9>&- 1000>&- >/dev/null 2>&1 &
 	EOF
 }

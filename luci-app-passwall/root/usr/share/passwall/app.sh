@@ -1384,7 +1384,7 @@ app_dns_restart() {
 		done
 	fi
 	if [ "$status" = 0 ]; then
-		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+		/etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1
 		status=$?
 	fi
 	if [ "$removed" = 1 ]; then
@@ -1408,7 +1408,7 @@ app_dns_restore() {
 
 app_dns_apply() {
 	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
-	if cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
+	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] && cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
 		return 0
 	fi
 	mkdir -p /tmp/dnsmasq.d || return 1
@@ -1466,6 +1466,7 @@ app_core_signature() {
 	# ACL, routing and scheduling changes never require a proxy-core restart.
 	uci -q export "$CONFIG" | awk '
 		/^config / { keep = $2 !~ /^(acl_rule|global_forwarding|global_rules|global_delay)$/ }
+		keep && $1 == "option" && $2 == "dns_redirect" { next }
 		keep { print }
 	' | sha256sum | cut -d ' ' -f 1
 }
@@ -1490,7 +1491,7 @@ app_runtime_load() {
 app_owned_pid() {
 	case "$1" in ''|*[!0-9]*) return 1 ;; esac
 	[ -r "/proc/$1/cmdline" ] || return 1
-	tr '\0' ' ' < "/proc/$1/cmdline" | grep -Fq '/passwall/'
+	tr '\0' ' ' 2>/dev/null < "/proc/$1/cmdline" | grep -Fq '/passwall/'
 }
 
 app_processes_stop() {
@@ -1513,6 +1514,67 @@ app_processes_stop() {
 	return 1
 }
 
+app_system_desired() {
+	SYSTEM_DNS_REDIRECT=1
+	SYSTEM_FLOW_OFFLOAD=1
+	if [ "$1" = running ]; then
+		[ "$(config_t_get global dns_redirect 1)" != 1 ] || SYSTEM_DNS_REDIRECT=0
+		[ "$(config_t_get global_forwarding iproute_shunt 0)" != 1 ] || SYSTEM_FLOW_OFFLOAD=0
+	fi
+}
+
+app_system_matches() {
+	app_system_desired running
+	[ "$(uci -q get 'dhcp.@dnsmasq[0].dns_redirect')" = "$SYSTEM_DNS_REDIRECT" ] &&
+		[ "$(uci -q get 'firewall.@defaults[0].flow_offloading')" = "$SYSTEM_FLOW_OFFLOAD" ] &&
+		[ "$(uci -q get 'firewall.@defaults[0].flow_offloading_hw')" = "$SYSTEM_FLOW_OFFLOAD" ]
+}
+
+app_system_save() {
+	uci -q get 'dhcp.@dnsmasq[0].dns_redirect' > "$1/system-dns" || :
+	uci -q get 'firewall.@defaults[0].flow_offloading' > "$1/system-flow" || :
+	uci -q get 'firewall.@defaults[0].flow_offloading_hw' > "$1/system-hw" || :
+}
+
+app_system_set() {
+	local key="$1" value="$2"
+	[ "$(uci -q get "$key")" != "$value" ] || return 0
+	if [ -n "$value" ]; then uci set "$key=$value"; else uci -q delete "$key"; fi || return 1
+	case "$key" in
+		dhcp.*) APP_DNS_REDIRECT_CHANGED=1 ;;
+		firewall.*) APP_FLOW_OFFLOAD_CHANGED=1 ;;
+	esac
+}
+
+app_system_commit() {
+	if [ "$APP_DNS_REDIRECT_CHANGED" = 1 ]; then uci commit dhcp || return 1; fi
+	if [ "$APP_FLOW_OFFLOAD_CHANGED" = 1 ]; then
+		uci commit firewall || return 1
+		# fw4's include must not enqueue another update caused by our own change.
+		PASSWALL_FW_RELOAD=1 /etc/init.d/firewall reload 9>&- || return 1
+	fi
+}
+
+app_system_apply() {
+	APP_DNS_REDIRECT_CHANGED=0
+	APP_FLOW_OFFLOAD_CHANGED=0
+	app_system_desired "$1"
+	app_system_set 'dhcp.@dnsmasq[0].dns_redirect' "$SYSTEM_DNS_REDIRECT" &&
+		app_system_set 'firewall.@defaults[0].flow_offloading' "$SYSTEM_FLOW_OFFLOAD" &&
+		app_system_set 'firewall.@defaults[0].flow_offloading_hw' "$SYSTEM_FLOW_OFFLOAD" &&
+		app_system_commit
+}
+
+app_system_restore() {
+	APP_DNS_REDIRECT_CHANGED=0
+	APP_FLOW_OFFLOAD_CHANGED=0
+	app_system_set 'dhcp.@dnsmasq[0].dns_redirect' "$(cat "$1/system-dns")" &&
+		app_system_set 'firewall.@defaults[0].flow_offloading' "$(cat "$1/system-flow")" &&
+		app_system_set 'firewall.@defaults[0].flow_offloading_hw' "$(cat "$1/system-hw")" &&
+		app_system_commit || return 1
+	[ "$APP_DNS_REDIRECT_CHANGED" = 0 ] || app_dns_restart "$1"
+}
+
 app_apply() {
 	local work="$1" routes_changed=0
 	if ! cmp -s "$work/network" "$STATE_PATH/network"; then
@@ -1524,12 +1586,15 @@ app_apply() {
 			return 1
 		fi
 	fi
-	if ! nft_commit "$work"; then
+	app_system_save "$work"
+	if ! app_system_apply running || ! nft_commit "$work"; then
+		app_system_restore "$work"
 		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
 		return 1
 	fi
 	if ! app_dns_apply "$work"; then
 		if [ -s "$STATE_PATH/rules.nft" ]; then nft_restore; else nft_stop; fi
+		app_system_restore "$work"
 		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
 		return 1
 	fi
@@ -1552,10 +1617,11 @@ app_reload() {
 	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
 		LOCAL_DNS="$old_local_dns"; DEFAULT_DNS="$old_default_dns"; IPT_APPEND_DNS="$old_append_dns"
 	fi
+	nft_read_config || return 1
 	work=$(mktemp -d "$STATE_PATH/reload.XXXXXX") || return 1
 	nft_network_snapshot > "$work/network"
 	if { [ "$reason" = network ] || [ "$reason" = firewall ]; } &&
-		cmp -s "$work/network" "$STATE_PATH/network" && nft list table inet passwall >/dev/null 2>&1; then
+		cmp -s "$work/network" "$STATE_PATH/network" && app_system_matches && nft list table inet passwall >/dev/null 2>&1; then
 		rm -rf "$work"
 		return 0
 	fi
@@ -1605,7 +1671,7 @@ app_update_rules() {
 }
 
 app_start() {
-	[ "$ENABLED" = 1 ] || return 0
+	[ "$ENABLED" = 1 ] || { app_stop; return $?; }
 	[ ! -f "$STATE_PATH/running" ] || { app_reload config; return $?; }
 	ulimit -n 65535
 	if ! command -v fw4 >/dev/null || ! command -v nft >/dev/null ||
@@ -1641,7 +1707,7 @@ app_start() {
 			fi
 		done
 	fi
-	if ! nft_prepare "$work" || ! app_dns_generate "$work"; then
+	if ! nft_read_config || ! nft_prepare "$work" || ! app_dns_generate "$work"; then
 		app_processes_stop
 		rm -rf "$work"
 		return 1
@@ -1671,10 +1737,15 @@ app_stop() {
 	delete_ip2route
 	app_processes_stop || return 1
 	stop_crontab
+	local dns_removed=0
 	if [ -e /tmp/dnsmasq.d/dnsmasq-passwall.conf ]; then
 		rm -f /tmp/dnsmasq.d/dnsmasq-passwall.conf "$DNSMASQ_PATH/dnsmasq-passwall.conf"
 		rm -rf "$TMP_DNSMASQ_PATH"
-		/etc/init.d/dnsmasq restart >/dev/null 2>&1 || return 1
+		dns_removed=1
+	fi
+	app_system_apply stopped || return 1
+	if [ "$dns_removed" = 1 ] || [ "$APP_DNS_REDIRECT_CHANGED" = 1 ]; then
+		/etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1 || return 1
 	fi
 	rm -rf "$TMP_PATH" "$TMP_PATH2" "$STATE_PATH/runtime"
 	rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*

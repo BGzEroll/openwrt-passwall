@@ -656,33 +656,13 @@ PBR 关闭时不会创建这张 PBR 专用 flowtable。
 
 # 软件 / 硬件流量分载注意事项
 
-开启：
+启用：
 
 ```text
 通过策略路由转发代理流量
 ```
 
-时，应按照界面提示关闭 OpenWrt 防火墙原生的：
-
-```text
-软件流量分载
-硬件流量分载
-```
-
-Passwall 会按配置的卸载接口建立 PBR 专用 flowtable，并按上面的 mark 与 conntrack 方向规则决定哪些连接可以加入。
-
-如果之后关闭：
-
-```text
-通过策略路由转发代理流量
-```
-
-需要重新开启 OpenWrt 原生的：
-
-```text
-软件流量分载
-硬件流量分载
-```
+时，Passwall 会自动关闭 OpenWrt 防火墙原生的软件及硬件流量分载，并使用自己的 PBR 专用 flowtable；接口由 OpenWrt fw4 API 自动获取。停止 Passwall 时会自动开启防火墙原生的软件及硬件流量分载。
 
 ---
 
@@ -724,9 +704,11 @@ Proxy
 
 # DNS 与规则分流
 
+启用全局 DNS Redirect 时，Passwall 会自动关闭 dnsmasq 的 DNS redirect；停止 Passwall 时会自动开启该项。
+
 ## 规则保存与热更新
 
-规则列表保存和“刷新 NFTSET”按钮都调用 `/etc/init.d/passwall reload rules`。该命令以 nftables 全表事务热重载规则，DNS 配置有变化时按需生效，不重启代理核心。
+规则列表保存时调用 `/etc/init.d/passwall reload rules`。该命令以 nftables 全表事务热重载规则，DNS 配置有变化时按需生效，不重启代理核心。
 
 - `start` / `stop` / `restart` 管理完整服务，重复启动不会重复创建进程。
 - `reload rules` 用于规则列表热更新；`reload network` 用于网络事件；不带参数的 `reload` 在核心配置变化时重启服务，否则热更新。

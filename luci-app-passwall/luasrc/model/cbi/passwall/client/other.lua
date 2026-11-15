@@ -79,7 +79,7 @@ o.validate = port_validate
 
 o = s:option(Flag, "iproute_shunt", translate("通过策略路由转发代理流量"))
 o.default = 0
-o.description = translate("开启后必须确保防火墙中的“软件及硬件流量分载”处于关闭状态，关闭后记得重新开启“软件及硬件流量分载”。")
+o.description = translate("开启后 Passwall 会自动关闭防火墙原生的软件及硬件流量分载，并继续使用自己的 PBR flowtable；停止 Passwall 时会自动开启防火墙原生的软件及硬件流量分载。")
 
 o = s:option(Value, "iproute_shunt_gw_v4", translate("转发至IPv4网关"))
 o:depends("iproute_shunt", true)
@@ -95,11 +95,13 @@ o = s:option(Value, "iproute_shunt_interface", translate("通过接口"))
 o:depends("iproute_shunt", true)
 o.placeholder = 'br-lan'
 
-o = s:option(Value, "iproute_shunt_offloading_interface", translate("使用硬件加速的接口"))
-o.default = 'lan1,lan2,lan3,wan'
-o.rmempty = false
-o.placeholder = 'lan1,lan2,lan3,wan'
-o.description = translate("必须填写物理接口名称。")
+o = s:option(DummyValue, "iproute_shunt_offloading_interface", translate("自动检测的硬件加速接口"))
+o:depends("iproute_shunt", true)
+o.description = translate("接口列表由 OpenWrt fw4 API 自动获取。")
+o.cfgvalue = function(self, section)
+	local interfaces = api.trim(api.sys.exec("ucode /usr/share/passwall/offload.uc 2>/dev/null") or "")
+	return interfaces ~= "" and interfaces or "无可用接口"
+end
 
 o = s:option(Flag, "accept_icmp", translate("Hijacking ICMP (PING)"))
 o.default = 1

@@ -63,7 +63,6 @@ run_case() {
 				global_forwarding.iproute_shunt_gw_v4) echo 192.0.2.2 ;;
 				global_forwarding.iproute_shunt_gw_v6) echo 2001:db8::2 ;;
 				global_forwarding.iproute_shunt_interface) echo eth9 ;;
-				global_forwarding.iproute_shunt_offloading_interface) echo eth0,eth1 ;;
 				global_forwarding.accept_icmp|global_forwarding.accept_icmpv6) echo 1 ;;
 				global.dns_redirect) echo 1 ;;
 				*) echo "${3:-}" ;;
@@ -98,6 +97,7 @@ run_case() {
 		# Replace only the unavailable OpenWrt network helper, then exercise the
 		# function-library API that emits the complete candidate table.
 		source <(sed 's#^\. /lib/functions/network.sh$#:#' "$SCRIPT")
+		nft_offload_devices() { echo eth0,eth1; }
 		nft_read_config
 		nft_generate > "$TEST_RULES_FILE"
 	)

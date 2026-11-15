@@ -13,7 +13,6 @@ uci -q batch <<-EOF >/dev/null
 	set firewall.passwall=include
 	set firewall.passwall.type=script
 	set firewall.passwall.path=/var/etc/passwall.include
-	set firewall.passwall.reload=1
 	commit firewall
 	set uhttpd.main.max_requests=50
 	commit uhttpd

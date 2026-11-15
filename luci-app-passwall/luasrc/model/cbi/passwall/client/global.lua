@@ -468,15 +468,8 @@ o:value("direct", translate("Direct DNS"))
 o.description = desc .. "</ul>"
 o:depends({dns_shunt = "dnsmasq", tcp_proxy_mode = "proxy", chn_list = "direct"})
 
-o = s:taboption("DNS", Flag, "dns_redirect", "DNS " .. translate("Redirect"), translate("Force Router DNS server to all local devices. Disable DNS redirect in DNSMASQ."))
+o = s:taboption("DNS", Flag, "dns_redirect", "DNS " .. translate("Redirect"), translate("启用后由 Passwall 劫持 DNS，并自动关闭 dnsmasq 的 DNS 重定向；停止 Passwall 时固定开启 dnsmasq 的 DNS 重定向。"))
 o.default = "1"
-
-o = s:taboption("DNS", Button, "clear_ipset", translate("Clear NFTSET"), translate("Try this feature if the rule modification does not take effect."))
-o.inputstyle = "remove"
-function o.write(e, e)
-	luci.sys.call("/etc/init.d/passwall reload rules > /dev/null 2>&1 &")
-	luci.http.redirect(api.url("log"))
-end
 
 s:tab("Proxy", translate("Mode"))
 
