@@ -127,10 +127,38 @@ function urltest_node()
 	local e = {}
 	e.index = index
 	if not id or uci:get(appname, id) ~= "nodes" then http.status(400, "Invalid node"); return end
-	local code, result = api.exec_call("/usr/share/passwall/test.sh url_test_node " .. util.shellquote(id))
+	-- Test exactly what this LuCI session displays, including Save-only edits.
+	local code, directory = api.exec_call("mktemp -d /tmp/passwall-url-config.XXXXXX")
+	if code ~= 0 or directory == "" then http.status(500, "Cannot prepare node test"); return end
+	local ok, result = pcall(function()
+		assert(api.fs.writefile(directory .. "/passwall", ""))
+		assert(api.fs.mkdir(directory .. "/delta"))
+		local snapshot = require("uci").cursor(directory, directory .. "/delta")
+		uci:foreach(appname, nil, function(section)
+			assert(snapshot:set(appname, section[".name"], section[".type"]))
+			for key, value in pairs(section) do
+				if key:sub(1, 1) ~= "." then assert(snapshot:set(appname, section[".name"], key, value)) end
+			end
+		end)
+		assert(snapshot:commit(appname))
+		local status, output = api.exec_call("PASSWALL_CONFIG_DIR=" .. util.shellquote(directory) ..
+			" /usr/share/passwall/test.sh url_test_node " .. util.shellquote(id))
+		return {status, output}
+	end)
+	api.fs.remover(directory)
+	if not ok then
+		api.log("测速", "配置准备失败：" .. tostring(result))
+		http.status(500, "Cannot prepare node test"); return
+	end
+	local code, result = result[1], result[2]
 	if code == 75 then
 		http.status(429, "Node test is running")
 		http_write_json({message="已有代理测试进行中，请稍后重试"})
+		return
+	end
+	if code ~= 0 then
+		http.status(502, "Node test failed")
+		http_write_json({message="代理测试失败"})
 		return
 	end
 	local code, seconds = result:match("(%d+):([%d.]+)")
@@ -162,8 +190,7 @@ function clear_all_nodes()
 		uci:delete(appname, node['.name'])
 	end)
 
-	uci:commit(appname)
-	luci.sys.call("/etc/init.d/" .. appname .. " stop")
+	uci:save(appname)
 end
 
 function delete_select_nodes()
@@ -189,8 +216,7 @@ function delete_select_nodes()
 		end
 		uci:delete(appname, id)
 	end
-	uci:commit(appname)
-	luci.sys.call("/etc/init.d/" .. appname .. " restart > /dev/null 2>&1 &")
+	uci:save(appname)
 	http_write_json({code = 0})
 end
 

@@ -22,6 +22,8 @@ def auth_and_guard():
  go('node_list');selections([auth,ids['_balancing']])
  with page.expect_response(lambda r:'/delete_select_nodes?' in r.url) as response:page.locator('[data-node-action="delete-selected"]').click()
  assert response.value.status==200
+ wait(lambda:page.locator(f'[data-node-select][data-section="{auth}"]').count()==0)
+ page.wait_for_load_state('networkidle');submit()
  wait(lambda:auth not in config() and ids['_balancing'] not in config())
  wait(lambda:json.loads(ssh('lua /usr/share/passwall/process.lua status'))['service_status']=='running')
 check('GUI auth SOCKS live flow; single/bulk reference rejection and internal-group deletion',auth_and_guard)
@@ -34,7 +36,9 @@ def chain():
  with page.expect_response(lambda r:'/delete_select_nodes?' in r.url) as response:page.locator('[data-node-action="delete-selected"]').click()
  assert response.value.status==409;assert 'to_node' in response.value.json()['message']
  wait(lambda:any('to_node' in d for d in dialogs[dialog_start:]),10)
- go('node_list');selections([nid]);page.locator('[data-node-action="delete-selected"]').click();wait(lambda:nid not in config())
+ go('node_list');selections([nid]);page.locator('[data-node-action="delete-selected"]').click()
+ wait(lambda:page.locator(f'[data-node-select][data-section="{nid}"]').count()==0)
+ page.wait_for_load_state('networkidle');submit();wait(lambda:nid not in config())
 check('GUI one-hop chain real URL flow and to_node delete protection',chain)
 def selection_cancel():
  global dialog_accept

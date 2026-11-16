@@ -16,7 +16,7 @@ def parallel_url_tests():
  assert '稍后重试' in retry_button.get_attribute('title')
  retry_response_start=len(url_responses);retry_button.click()
  wait(lambda:retry_button.get_attribute('aria-disabled')=='false' and retry_button.inner_text()!='检测中…',25)
- wait(lambda:200 in url_responses[retry_response_start:],10)
+ wait(lambda:any(code in [200,502] for code in url_responses[retry_response_start:]),10)
  assert retry_button.inner_text()!='稍后重试'
  page.wait_for_timeout(1000)
  ports=json.loads(ssh("lua -e 'local f=require(\"nixio.fs\");local j=require(\"luci.jsonc\");local r={};for p in f.glob(\"/tmp/passwall-urltest.*/test.json\") do local d=j.parse(f.readfile(p));r[#r+1]=d.inbounds[1].port end;print(j.stringify(r))'"))

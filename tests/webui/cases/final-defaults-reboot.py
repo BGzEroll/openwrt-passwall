@@ -22,6 +22,9 @@ check('fresh defaults: local proxy on, delay0, zero-node DNS usable', new_defaul
 def clear_create_enable():
     go('node_list')
     page.locator('[data-node-action="clear-all"]').click()
+    wait(lambda: page.locator('[data-node-select]').count() == 0)
+    page.wait_for_load_state('networkidle')
+    submit()
     wait(lambda: state()['service_status'] == 'disabled')
     assert not ordered('nodes')
     nid = node_create('Final WebUI SOCKS')

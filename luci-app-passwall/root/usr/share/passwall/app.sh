@@ -926,7 +926,7 @@ app_stop() {
 	fi
 	if [ "$failed" = 0 ]; then
 		rm -rf "$TMP_PATH" "$STATE_PATH/runtime" "$PROCESS_DIR"
-		rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*
+		rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/hosts.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*
 		echolog 服务 "已停止"
 	else
 		echolog 服务 "Passwall 停止时有步骤失败，已继续清理并保留运行记录"
@@ -938,7 +938,7 @@ mkdir -p "$STATE_PATH"
 CONFIG_INPUT=$(mktemp -d "$STATE_PATH/config.XXXXXX") || exit 1
 trap 'rm -rf "$CONFIG_INPUT"' EXIT
 case "$1:$2" in
- check:*)
+ check:*|run_socks:*)
   [ -z "${PASSWALL_CONFIG_DIR:-}" ] || cp "$PASSWALL_CONFIG_DIR/passwall" "$CONFIG_INPUT/passwall" || exit 1
  ;;
  reload:network|reload:firewall|reload:rules|update_rules:*)
