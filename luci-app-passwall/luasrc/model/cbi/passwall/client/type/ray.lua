@@ -4,6 +4,7 @@ local api = require "luci.passwall.api"
 
 local appname = "passwall"
 local uci = api.uci
+local escape = require("luci.xml").pcdata
 
 local option_prefix = "xray_"
 
@@ -79,6 +80,14 @@ end
 local o = s:option(DynamicList, option_name("balancing_node"), translate("均衡节点"))
 o:depends({ [option_name("protocol")] = "_balancing" })
 for k, v in pairs(nodes_table) do o:value(v.id, v.remark) end
+o.validate = function(self, value)
+	for _, id in ipairs(value or {}) do
+		if not api.util.contains(self.keylist, id) then
+			return nil, translate("均衡节点已删除或不可用，请重新选择。")
+		end
+	end
+	return value
+end
 
 local o = s:option(ListValue, option_name("balancingStrategy"), translate("Balancing Strategy"))
 o:depends({ [option_name("protocol")] = "_balancing" })
@@ -90,6 +99,7 @@ o.default = "leastPing"
 -- Fallback Node
 local o = s:option(ListValue, option_name("fallback_node"), translate("Fallback Node"))
 o:depends({ [option_name("protocol")] = "_balancing" })
+o:value("", translate("不使用"))
 local function check_fallback_chain(fb)
 	for k, v in pairs(fallback_table) do
 		if v.fallback == fb then
@@ -150,7 +160,7 @@ if #nodes_table > 0 then
 end
 uci:foreach(appname, "shunt_rules", function(e)
 	if e[".name"] and e.remarks then
-		o = s:option(ListValue, option_name(e[".name"]), string.format('* <a href="%s" target="_blank">%s</a>', api.url("shunt_rules", e[".name"]), e.remarks))
+		o = s:option(ListValue, option_name(e[".name"]), string.format('* <a href="%s" target="_blank">%s</a>', api.url("shunt_rules", e[".name"]), escape(e.remarks)))
 		o:value("nil", translate("Close"))
 		o:value("_default", translate("Default"))
 		o:value("_direct", translate("Direct Connection"))
@@ -164,7 +174,7 @@ uci:foreach(appname, "shunt_rules", function(e)
 			for k, v in pairs(iface_table) do
 				o:value(v.id, v.remark)
 			end
-			local pt = s:option(ListValue, option_name(e[".name"] .. "_proxy_tag"), string.format('* <a style="color:red">%s</a>', e.remarks .. " " .. translate("Preproxy")))
+			local pt = s:option(ListValue, option_name(e[".name"] .. "_proxy_tag"), string.format('* <a style="color:red">%s</a>', escape(e.remarks) .. " " .. translate("Preproxy")))
 			pt:value("nil", translate("Close"))
 			pt:value("main", translate("Preproxy Node"))
 			pt.default = "nil"
@@ -570,8 +580,10 @@ end
 
 for i, v in ipairs(s.fields[option_name("protocol")].keylist) do
 	if not v:find("_") then
-		s.fields[option_name("tcpMptcp")]:depends({ [option_name("protocol")] = v })
-		s.fields[option_name("tcpNoDelay")]:depends({ [option_name("protocol")] = v })
+		if v ~= "wireguard" then
+			s.fields[option_name("tcpMptcp")]:depends({ [option_name("protocol")] = v })
+			s.fields[option_name("tcpNoDelay")]:depends({ [option_name("protocol")] = v })
+		end
 		s.fields[option_name("to_node")]:depends({ [option_name("protocol")] = v })
 	end
 end

@@ -57,21 +57,18 @@ function is_supported_shunt_rule(rule)
 end
 
 function exec_call(cmd)
-	local process = io.popen(cmd .. '; echo -e "\n$?"')
-	local lines = {}
-	local result = ""
-	local return_code
-	for line in process:lines() do
-		lines[#lines + 1] = line
-	end
-	process:close()
-	if #lines > 0 then
-		return_code = lines[#lines]
-		for i = 1, #lines - 1 do
-			result = result .. lines[i] .. ((i == #lines - 1) and "" or "\n")
-		end
-	end
-	return tonumber(return_code), trim(result)
+	-- LuCI's signal handlers can interrupt a blocking popen():lines() read.
+	-- Wait for the command, then read its completed output from a private file.
+	local nixio = require "nixio"
+	local file = nixio.mkstemp("passwall-exec")
+	if not file then return 1, "无法创建命令输出文件" end
+	-- mkstemp returns an already unlinked file; retain it across the command.
+	local path = "/proc/" .. nixio.getpid() .. "/fd/" .. file:fileno()
+	local code = sys.call("(" .. cmd .. ") > " .. util.shellquote(path))
+	local output = file:readall()
+	file:close()
+	if output == nil then return 1, "无法读取命令输出" end
+	return code, trim(output)
 end
 
 function base64Decode(text)
@@ -228,8 +225,36 @@ function get_valid_nodes()
 	return nodes
 end
 
+function normalize_ports(value, allow_default)
+	local message = "端口格式无效，请填写 0–65535 内的端口、范围或逗号分隔的列表。"
+	if type(value) ~= "string" then return nil, message end
+	value = trim(value):gsub("%s*[%-:]%s*", ":"):gsub("%s*,%s*", ",")
+	if value == "disable" or (allow_default and value == "default") then return value end
+	local ranges = {}
+	for item in (value .. ","):gmatch("(.-),") do
+		local first, last = item:match("^(%d+):(%d+)$")
+		if not first then first = item:match("^(%d+)$"); last = first end
+		first, last = tonumber(first), tonumber(last)
+		if not first or first < 0 or last > 65535 or first > last then return nil, message end
+		ranges[#ranges + 1] = {first, last}
+	end
+	table.sort(ranges, function(a, b) return a[1] < b[1] end)
+	local merged = {}
+	for _, range in ipairs(ranges) do
+		local previous = merged[#merged]
+		if previous and range[1] <= previous[2] + 1 then
+			previous[2] = math.max(previous[2], range[2])
+		else merged[#merged + 1] = range end
+	end
+	local result = {}
+	for _, range in ipairs(merged) do
+		result[#result + 1] = range[1] == range[2] and tostring(range[1]) or (range[1] .. ":" .. range[2])
+	end
+	return table.concat(result, ",")
+end
+
 function gen_short_uuid()
-	return sys.exec("echo -n $(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 8)")
+	return sys.uniqueid(8)
 end
 
 function clone(org)

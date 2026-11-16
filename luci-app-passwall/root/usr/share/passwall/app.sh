@@ -495,7 +495,8 @@ app_dns_generate() {
 		return 1
 	}
 	mv "$work/files" "$work/publish" || return 1
-	sed "s|^conf-dir=.*|conf-dir=$TMP_DNSMASQ_PATH|" "$work/entry.conf" > "$work/publish.conf"
+	sed "s|^conf-dir=.*|conf-dir=$TMP_DNSMASQ_PATH|" "$work/entry.conf" > "$work/publish.conf" || return 1
+	sha256sum /etc/hosts > "$work/hosts.sha256" || return 1
 }
 
 app_dns_signature() {
@@ -545,7 +546,7 @@ app_dns_restore() {
 app_dns_apply() {
 	APP_DNS_APPLIED=0
 	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
-	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] && cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
+	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] && cmp -s "$work/hosts.sha256" "$STATE_PATH/hosts.sha256" && cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
 		return 0
 	fi
 	mkdir -p /tmp/dnsmasq.d || return 1
@@ -614,8 +615,8 @@ app_check() {
 	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
 		start_redir TCP || APP_LAUNCH_FAILED=1
 		start_redir UDP || APP_LAUNCH_FAILED=1
-		start_dns || APP_LAUNCH_FAILED=1
 	fi
+	start_dns || APP_LAUNCH_FAILED=1
 	[ "$APP_LAUNCH_FAILED" = 0 ] && [ ! -e "$PROCESS_DIR/error" ] &&
 		lua "$APP_PATH/process.lua" validate "$PROCESS_DIR" || return 1
 	nft_read_config && nft_prepare "$TMP_PATH" && app_dns_generate "$TMP_PATH"
@@ -758,11 +759,13 @@ app_apply() {
 	fi
 	mv "$work/rules.nft" "$STATE_PATH/rules.nft" || return 1
 	mv "$work/network" "$STATE_PATH/network" || return 1
+	mv "$work/hosts.sha256" "$STATE_PATH/hosts.sha256" || return 1
 }
 
 app_reload() {
 	local reason="${1:-config}" work old_local_dns="$LOCAL_DNS" old_default_dns="$DEFAULT_DNS"
 	if [ "$reason" = config ]; then
+		rm -f "$STATE_PATH/last_error"
 		[ "$ENABLED" = 1 ] || { app_stop; return $?; }
 		[ -f "$STATE_PATH/running" ] || { app_start; return $?; }
 	fi
@@ -855,12 +858,12 @@ app_start() {
 	APP_LAUNCH_FAILED=0
 	local work
 	work=$(mktemp -d "$STATE_PATH/start.XXXXXX") || return 1
+	mkdir -p "$TMP_ACL_PATH/default"
 	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
-		mkdir -p "$TMP_ACL_PATH/default"
 		start_redir TCP || APP_LAUNCH_FAILED=1
 		start_redir UDP || APP_LAUNCH_FAILED=1
-		start_dns || APP_LAUNCH_FAILED=1
 	fi
+	start_dns || APP_LAUNCH_FAILED=1
 	if [ "$APP_LAUNCH_FAILED" = 1 ] || [ -e "$PROCESS_DIR/error" ]; then
 		app_processes_stop
 		rm -rf "$work"
@@ -981,7 +984,7 @@ TCP_PROXY_MODE=$(config_t_get global tcp_proxy_mode proxy)
 UDP_PROXY_MODE=$(config_t_get global udp_proxy_mode proxy)
 [ "${TCP_PROXY_MODE}" != "disable" ] && TCP_PROXY_MODE="proxy"
 [ "${UDP_PROXY_MODE}" != "disable" ] && UDP_PROXY_MODE="proxy"
-LOCALHOST_PROXY=$(config_t_get global localhost_proxy 0)
+LOCALHOST_PROXY=$(config_t_get global localhost_proxy 1)
 DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
 [ -z "$(binary_path $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
 DNS_MODE=$(config_t_get global dns_mode tcp)
@@ -1046,3 +1049,14 @@ update_rules)
 	app_update_rules "$1"
 	;;
 esac
+
+result=$?
+case "$arg1:$1" in
+	start:*|restart:*|reload:config)
+		if [ "$result" != 0 ] && [ ! -s "$STATE_PATH/last_error" ]; then
+			tail -n 1 "$LOG_FILE" | sed 's/^[^]]*] //' > "$STATE_PATH/last_error"
+			[ -s "$STATE_PATH/last_error" ] || printf '%s\n' '应用失败，请查看运行日志' > "$STATE_PATH/last_error"
+		fi
+	;;
+esac
+exit "$result"

@@ -5,7 +5,7 @@ local sys = api.sys
 local datatypes = api.datatypes
 
 local function port_validate(self, value)
-	return value:gsub("-", ":")
+	return api.normalize_ports(value, true)
 end
 
 local function dynamic_list_write(self, section, value)

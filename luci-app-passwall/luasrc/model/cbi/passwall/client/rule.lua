@@ -6,6 +6,14 @@ local datatypes = api.datatypes
 local rules_path = "/usr/share/passwall/rules/"
 
 local m = Map(appname)
+local pending_files = {}
+function m.on_before_save()
+	for path, content in pairs(pending_files) do
+		if fs.readfile(path) ~= content then
+			assert(fs.writefile(path, content), "规则文件写入失败：" .. path)
+		end
+	end
+end
 local rules = m:section(TypedSection, "global_rules", translate("规则管理"))
 rules.anonymous = true
 
@@ -58,13 +66,14 @@ local function add_file_editor(tab, option, filepath, help, validator, error_mes
 	o.rows = 15
 	o.wrap = "off"
 	o.cfgvalue = function(self, section)
+		if self.map.save == false then return self:formvalue(section) end
 		return fs.readfile(filepath) or ""
 	end
 	o.write = function(self, section, value)
-		assert(fs.writefile(filepath, normalize_text(value)), "规则文件写入失败")
+		pending_files[filepath] = normalize_text(value)
 	end
 	o.remove = function(self, section)
-		assert(fs.writefile(filepath, ""), "规则文件清空失败")
+		pending_files[filepath] = ""
 	end
 	if validator then
 		o.validate = function(self, value)
@@ -106,13 +115,14 @@ local hosts = rules:taboption("route_hosts", TextValue, "hosts", "",
 hosts.rows = 15
 hosts.wrap = "off"
 hosts.cfgvalue = function(self, section)
+	if self.map.save == false then return self:formvalue(section) end
 	return fs.readfile("/etc/hosts") or ""
 end
 hosts.write = function(self, section, value)
-	fs.writefile("/etc/hosts", normalize_text(value))
+	pending_files["/etc/hosts"] = normalize_text(value)
 end
 hosts.remove = function(self, section)
-	fs.writefile("/etc/hosts", "")
+	pending_files["/etc/hosts"] = ""
 end
 
 local readonly_lists = {
@@ -230,6 +240,7 @@ function shunt.remove(self, section)
 	m.uci:foreach(appname, "nodes", function(node)
 		if node.protocol == "_shunt" then
 			m:del(node[".name"], section)
+			m:del(node[".name"], section .. "_proxy_tag")
 		end
 	end)
 	TypedSection.remove(self, section)

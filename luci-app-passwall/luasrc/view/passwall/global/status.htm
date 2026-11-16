@@ -1,6 +1,7 @@
 <% local api = require "luci.passwall.api" -%>
 <fieldset class="cbi-section" id="passwall-status">
 	<legend><%:运行状态%></legend>
+	<div id="passwall-apply-error" class="alert-message warning" style="display:none" role="status"></div>
 	<div class="passwall-status-grid">
 		<% for _, name in ipairs({"TCP", "UDP", "DNS"}) do %>
 		<div class="passwall-status-card">
@@ -37,6 +38,10 @@
 (function() {
 	var labels = {running:'运行中', configured:'运行中', not_running:'未运行', disabled:'已关闭'};
 	XHR.poll(5, '<%=api.url("index_status")%>', null, function(x, data) {
+		var error = document.getElementById('passwall-apply-error');
+		var message = x && x.status === 200 && data ? data.last_error : '';
+		error.textContent = message ? '未应用配置：' + message : '';
+		error.style.display = message ? '' : 'none';
 		['tcp', 'udp', 'dns'].forEach(function(name) {
 			var element = document.getElementById('status_' + name);
 			var state = x && x.status === 200 && data ? data[name + '_status'] : '';

@@ -18,12 +18,15 @@ o = s:option(Value, "remarks", translate("Node Remarks"))
 o.default = translate("Remarks")
 o.rmempty = false
 
-o = s:option(Value, "type", translate("Core"))
-o.default = "Xray"
-o.readonly = true
-o.rmempty = false
-o.write = function(self, section)
-	self.map:set(section, self.option, "Xray")
+o = s:option(DummyValue, "type", translate("Core"))
+o.cfgvalue = function()
+	return "Xray"
+end
+
+-- Native CBI skips parsing read-only values. Persist the fixed core on both
+-- Save and Save & Apply, including nodes created before this invariant existed.
+function m.on_before_save(self)
+	self:set(arg[1], "type", "Xray")
 end
 
 local xray_form = loadfile(types_dir .. "ray.lua")

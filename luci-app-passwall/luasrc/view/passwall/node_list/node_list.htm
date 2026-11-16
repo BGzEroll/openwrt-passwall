@@ -133,8 +133,14 @@ end
 			button.setAttribute("aria-disabled", "true");
 			button.textContent = "检测中…";
 			button.style.color = "";
+			button.removeAttribute("title");
 			XHR.get(requestUrl, params, function(xhr, data) {
 				button.setAttribute("aria-disabled", "false");
+				if (xhr && xhr.status === 429) {
+					button.textContent = "稍后重试";
+					button.title = data && data.message || "已有代理测试进行中";
+					return;
+				}
 				if (!xhr || xhr.status !== 200) {
 					button.textContent = "错误";
 					button.style.color = "red";

@@ -15,6 +15,7 @@ s.template_addremove = appname .. "/node_list/nodes_actions"
 function s.create(e, t)
 	local uuid = api.gen_short_uuid()
 	TypedSection.create(e, uuid)
+	e.map:set(uuid, "type", "Xray")
 	luci.http.redirect(api.url("node_config", uuid))
 end
 

@@ -3,7 +3,7 @@ local appname = "passwall"
 local fs = api.fs
 
 local port_validate = function(self, value, t)
-	return value:gsub("-", ":")
+	return api.normalize_ports(value)
 end
 
 m = Map(appname)
@@ -15,7 +15,7 @@ s.addremove = false
 
 ---- Delay Start
 o = s:option(Value, "start_delay", translate("启动延迟（秒）"))
-o.default = "60"
+o.default = "0"
 o.datatype = "uinteger"
 o.rmempty = true
 
@@ -91,7 +91,7 @@ o = s:option(DummyValue, "iproute_shunt_offloading_interface", translate("自动
 o.template = "passwall/value_text"
 o:depends("iproute_shunt", true)
 o.cfgvalue = function(self, section)
-	local interfaces = api.trim(api.sys.exec("ucode /usr/share/passwall/offload.uc 2>/dev/null") or "")
+	local _, interfaces = api.exec_call("QUIET=1 ucode /usr/share/passwall/offload.uc 2>/dev/null")
 	return interfaces ~= "" and interfaces or "无可用接口"
 end
 
@@ -126,13 +126,26 @@ o:depends("fragment", true)
 
 o = s_xray:option(Flag, "sniffing_override_dest", translate("按嗅探域名覆盖目标地址"))
 o.default = 0
+local sniffing_override_dest = o
 
 local domains_excluded = string.format("/usr/share/%s/rules/domains_excluded", appname)
+local pending_domains
+function m.on_before_save()
+	if pending_domains ~= nil and fs.readfile(domains_excluded) ~= pending_domains then
+		assert(fs.writefile(domains_excluded, pending_domains), "排除域名写入失败")
+	end
+end
 o = s_xray:option(TextValue, "excluded_domains", translate("排除域名"), translate("嗅探结果命中此列表时不覆盖目标地址。"))
 o.rows = 15
 o.wrap = "off"
-o.cfgvalue = function(self, section) return fs.readfile(domains_excluded) or "" end
-o.write = function(self, section, value) fs.writefile(domains_excluded, value:gsub("\r\n", "\n")) end
+o.cfgvalue = function(self, section)
+	if self.map.save == false then return self:formvalue(section) end
+	return fs.readfile(domains_excluded) or ""
+end
+o.write = function(self, section, value) pending_domains = value:gsub("\r\n", "\n") end
+o.remove = function(self, section)
+	if sniffing_override_dest:formvalue(section) == "1" then pending_domains = "" end
+end
 o:depends({sniffing_override_dest = true})
 
 o = s_xray:option(Value, "buffer_size", translate("单连接缓冲区大小（KB）"))

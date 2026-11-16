@@ -72,7 +72,7 @@ function clear_log()
 end
 
 function index_status()
-	local output = luci.sys.exec("lua /usr/share/passwall/process.lua status")
+	local _, output = api.exec_call("lua /usr/share/passwall/process.lua status")
 	local data = api.jsonc.parse(output) or {service_status = "degraded", service_detail = "无法读取运行状态"}
 	http.prepare_content("application/json")
 	http.write_json(data)
@@ -88,13 +88,35 @@ function ping_node()
   (kind == "tcping" and (not port or port < 1 or port > 65535 or port % 1 ~= 0)) then
   http.status(400, "Invalid probe target"); return
  end
+ -- The firmware's tcping binary only resolves IPv4 destinations.
+ if kind == "tcping" and api.is_ipv6(address) then
+  local nixio = require "nixio"
+  local socket = nixio.socket("inet6", "stream")
+  local delay
+  if socket then
+   socket:setblocking(false)
+   local seconds, micros = nixio.gettimeofday()
+   local connected, err = socket:connect(address, port)
+   if not connected and (err == 115 or err == 114) then
+    local ready = nixio.poll({{fd=socket, events=nixio.poll_flags("out")}}, 2000)
+    connected = (ready or 0) > 0 and socket:getopt("socket", "error") == 0
+   end
+   if connected then
+    local after_seconds, after_micros = nixio.gettimeofday()
+    delay = math.max(0, (after_seconds - seconds) * 1000 + (after_micros - micros) / 1000)
+   end
+   socket:close()
+  end
+  http_write_json({index=http.formvalue("index"), ping=delay})
+  return
+ end
  local command
  if kind == "tcping" then
   command = "tcping -q -c 1 -i 1 -t 2 -p " .. port .. " " .. util.shellquote(address)
  else
   command = "ping -c 1 -W 1 " .. util.shellquote(address)
  end
- local output = luci.sys.exec(command .. " 2>&1")
+ local _, output = api.exec_call(command .. " 2>&1")
  local delay = output:match("time[=<]([%d.]+)")
  http_write_json({index=http.formvalue("index"), ping=delay})
 end
@@ -105,7 +127,12 @@ function urltest_node()
 	local e = {}
 	e.index = index
 	if not id or uci:get(appname, id) ~= "nodes" then http.status(400, "Invalid node"); return end
-	local result = luci.sys.exec("/usr/share/passwall/test.sh url_test_node " .. util.shellquote(id))
+	local code, result = api.exec_call("/usr/share/passwall/test.sh url_test_node " .. util.shellquote(id))
+	if code == 75 then
+		http.status(429, "Node test is running")
+		http_write_json({message="已有代理测试进行中，请稍后重试"})
+		return
+	end
 	local code, seconds = result:match("(%d+):([%d.]+)")
 	if tonumber(code) and tonumber(code) > 0 and tonumber(seconds) then
 		e.use_time = string.format("%.0f", tonumber(seconds) * 1000)
@@ -123,7 +150,7 @@ function copy_node()
 	for key, value in pairs(node) do
 		if key:sub(1, 1) ~= "." then uci:set(appname, uuid, key, value) end
 	end
-	uci:commit(appname)
+	uci:save(appname)
 	luci.http.redirect(api.url("node_config", uuid))
 end
 
@@ -186,6 +213,7 @@ function update_rules()
 	if code == 75 then
 		http.status(409, "Rule update is running")
 	elseif code ~= 0 or not status then
+		api.log("规则", "启动更新任务失败：" .. tostring(code) .. "；" .. tostring(output))
 		http.status(500, "Cannot start rule update")
 		status = {state="failed", message="无法启动更新任务"}
 	end
@@ -193,7 +221,7 @@ function update_rules()
 end
 
 function get_rule_update_status()
-	local output = luci.sys.exec("/usr/share/passwall/rule_update.sh status")
+	local _, output = api.exec_call("/usr/share/passwall/rule_update.sh status")
 	local status = api.jsonc.parse(output)
 	if not status then http.status(500, "Cannot read rule update status") end
 	http.header("Cache-Control", "no-store")

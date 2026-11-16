@@ -3,6 +3,10 @@
 [ "$1" = url_test_node ] || exit 1
 node=$2
 [ "$(uci -q get "passwall.$node")" = nodes ] || exit 1
+mkdir -p /var/lock || exit 1
+exec 7>/var/lock/passwall-url-test.lock || exit 1
+# Port selection and listener startup must not race another node test.
+flock -n 7 || exit 75
 PASSWALL_TEST_DIR=$(mktemp -d /tmp/passwall-urltest.XXXXXX) || exit 1
 export PASSWALL_TEST_DIR
 export PASSWALL_TMP_PATH=$PASSWALL_TEST_DIR

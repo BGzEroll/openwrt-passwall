@@ -1,6 +1,7 @@
 local api = require "luci.passwall.api"
 local appname = "passwall"
 local uci = api.uci
+local escape = require("luci.xml").pcdata
 local endpoint = require "luci.passwall.endpoint"
 local has_gfwlist = api.fs.access("/usr/share/passwall/rules/gfwlist")
 local has_chnroute = api.fs.access("/usr/share/passwall/rules/chnroute")
@@ -104,7 +105,7 @@ if #nodes_table > 0 then
 				local id = e[".name"]
 				local node_option = vid .. "-" .. id .. "_node"
 				if id and e.remarks then
-					o = s:taboption("Main", ListValue, node_option, string.format('* <a href="%s" target="_blank">%s</a>', api.url("shunt_rules", id), e.remarks))
+					o = s:taboption("Main", ListValue, node_option, string.format('* <a href="%s" target="_blank">%s</a>', api.url("shunt_rules", id), escape(e.remarks)))
 					o.cfgvalue = get_cfgvalue(v.id, id)
 					o.write = get_write(v.id, id)
 					o:depends("tcp_node", v.id)
@@ -113,7 +114,7 @@ if #nodes_table > 0 then
 					o:value("_direct", translate("直连"))
 					o:value("_blackhole", translate("黑洞"))
 
-					local pt = s:taboption("Main", ListValue, vid .. "-".. id .. "_proxy_tag", string.format('* %s', e.remarks .. " " .. translate("前置代理")))
+					local pt = s:taboption("Main", ListValue, vid .. "-".. id .. "_proxy_tag", string.format('* %s', escape(e.remarks) .. " " .. translate("前置代理")))
 					pt.cfgvalue = get_cfgvalue(v.id, id .. "_proxy_tag")
 					pt.write = get_write(v.id, id .. "_proxy_tag")
 					pt:value("nil", translate("关闭"))
@@ -334,7 +335,7 @@ udp_proxy_mode:value("proxy", translate("Proxy"))
 udp_proxy_mode.default = "proxy"
 
 o = s:taboption("Proxy", Flag, "localhost_proxy", translate("本机代理"))
-o.default = "0"
+o.default = "1"
 o.rmempty = false
 
 for k, v in pairs(nodes_table) do
