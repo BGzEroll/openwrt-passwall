@@ -32,8 +32,23 @@ run_worker() {
 	else
 		lua "$APP/rule_update.lua" log nil cron 2>/var/run/passwall/rule-update.error
 	fi
+
 	local result=$?
-	[ "$result" = 0 ] || lua "$APP/rule_update.lua" failed >/dev/null
+
+	if [ "$result" = 0 ]; then
+		(
+			flock -x 9 || exit 1
+
+			for backup in "$APP"/rules/.update.??????; do
+				[ -d "$backup" ] || continue
+				rm -rf -- "$backup" || exit 1
+			done
+		) 9>/var/lock/passwall.lock ||
+			logger -t passwall "历史规则备份清理失败"
+	else
+		lua "$APP/rule_update.lua" failed >/dev/null
+	fi
+
 	return "$result"
 }
 if [ "$1" = start ]; then
