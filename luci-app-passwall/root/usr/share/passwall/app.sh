@@ -472,21 +472,22 @@ start_dns() {
 			_default_tag=$(config_t_get global chinadns_ng_default_tag smart)
 
 		debuglog DNS "ChinaDNS-NG(${china_ng_listen})：直连DNS：${china_ng_local_dns}，可信DNS：${china_ng_trust_dns}"
-
-		USE_DEFAULT_DNS="chinadns_ng"
 	}
 
 	CHINADNS_DNS=${china_ng_listen:-0}
 }
 
 app_dns_generate() {
-	local work="$1"
+	local work="$1" default_dns
+	# This is a configuration choice, not a value restored from runtime state.
+	default_dns=$(config_t_get global use_default_dns direct)
+	[ "${CHINADNS_DNS:-0}" = 0 ] || default_dns=chinadns_ng
 	mkdir -p "$work/files"
 	lua "$APP_PATH/helper_dnsmasq_add.lua" \
 		-TMP_DNSMASQ_PATH "$work/files" -DNSMASQ_CONF_FILE "$work/entry.conf" \
 		-LOCAL_DNS "${LOCAL_DNS:-nil}" \
 		-TUN_DNS "${TUN_DNS:-nil}" \
-		-USE_DEFAULT_DNS "${USE_DEFAULT_DNS:-direct}" -CHINADNS_DNS "${CHINADNS_DNS:-0}" \
+		-USE_DEFAULT_DNS "$default_dns" -CHINADNS_DNS "${CHINADNS_DNS:-0}" \
 		-USE_DIRECT_LIST "$USE_DIRECT_LIST" -USE_PROXY_LIST "$USE_PROXY_LIST" \
 		-USE_BLOCK_LIST "$USE_BLOCK_LIST" -USE_GFW_LIST "$USE_GFW_LIST" -CHN_LIST "$CHN_LIST" \
 		-TCP_NODE "$TCP_NODE" -DEFAULT_PROXY_MODE "$TCP_PROXY_MODE" || return 1
@@ -649,14 +650,15 @@ app_runtime_save() {
 	mkdir -p "$STATE_PATH/runtime/config" && chmod 700 "$STATE_PATH/runtime/config" || return 1
 	cp "$CONFIG_INPUT/passwall" "$STATE_PATH/runtime/config/passwall.next" &&
 		mv "$STATE_PATH/runtime/config/passwall.next" "$STATE_PATH/runtime/config/passwall" || return 1
-	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS USE_DEFAULT_DNS CHINADNS_DNS; do
+	rm -f "$STATE_PATH/runtime/USE_DEFAULT_DNS" || return 1
+	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
 		eval 'printf "%s\n" "${'"$key"':-}"' > "$STATE_PATH/runtime/$key"
 	done
 }
 
 app_runtime_load() {
 	local key value
-	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS USE_DEFAULT_DNS CHINADNS_DNS; do
+	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
 		[ -f "$STATE_PATH/runtime/$key" ] || continue
 		value=$(cat "$STATE_PATH/runtime/$key")
 		export "$key=$value"
@@ -989,7 +991,6 @@ DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
 [ -z "$(binary_path $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
 DNS_MODE=$(config_t_get global dns_mode tcp)
 REMOTE_DNS=$(config_t_get global remote_dns 1.1.1.1:53)
-USE_DEFAULT_DNS=$(config_t_get global use_default_dns direct)
 dns_listen_port=${DNS_PORT}
 
 RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto

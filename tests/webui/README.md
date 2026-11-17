@@ -11,6 +11,7 @@ The current fixtures are prepared separately from this directory:
 - HTTP rule-list files are served from `/tmp/passwall-webui-acceptance/http` on port `20181`.
 - The slow HTTP handler is `/tmp/passwall-webui-acceptance/slow-http.py` on port `20183`.
 - Protocol endpoints run on the test router at `127.0.0.1:20191–20199`; the upstream SOCKS fixture listens on `127.0.0.1:20180` and `[::1]:20180`.
+- For `phase30-default-dns`, run `python3 tests/fixtures/dns/default_servers.py` on `HTTP_HOST`. Its UDP ports `20531` and `20532` return distinct synthetic answers for real DNS-selection checks.
 - For `phase28-node-actions`, copy `tests/test_url_test_lock.sh` to `/tmp/passwall-test-url-lock.sh` on the test router.
 - `HTTP_HOST` can replace `192.168.114.215` when the HTTP fixture host differs. The fixture ports and paths remain fixed by these cases.
 
@@ -35,7 +36,7 @@ python3 tests/webui/run.py \
   phase17-domain-routing phase18-refs phase19-validation phase20-modes \
   phase21-no-node-xray phase22-concurrent-tests phase23-recovery-reset \
   phase24-fallback-stale phase25-core-options phase26-large-rules \
-  phase27-save-copy phase28-node-actions phase29-pending-url-test
+  phase27-save-copy phase28-node-actions phase29-pending-url-test phase30-default-dns
 ```
 
 Each positional `CASE` may be given with or without `.py`; cases run in the supplied order. `phase1` creates the artifact `ids.json` used by later cases, so keep the same artifact directory and router for the whole sequence. A single case can be run by itself only when its earlier-case state and IDs are already present. `final-defaults-reboot` instead requires a freshly initialized profile and the upstream fixture to start automatically across a router reboot. It uses the native system reboot page and requires correctly configured LAN bypass lists.
