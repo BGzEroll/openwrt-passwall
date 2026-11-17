@@ -726,7 +726,7 @@ nft_stop() {
 }
 
 nft_network_snapshot() {
-	local interface device key
+	local interface device key family
 	printf 'offload_devices=%s\n' "$iproute_shunt_offloading_interface"
 	for key in iproute_shunt iproute_shunt_gw_v4 iproute_shunt_gw_v6 iproute_shunt_interface; do
 		printf '%s=%s\n' "$key" "$(config_t_get global_forwarding "$key")"
@@ -743,6 +743,15 @@ nft_network_snapshot() {
 		printf 'proxy_device=%s\n' "$iproute_shunt_interface"
 		cat "/sys/class/net/$iproute_shunt_interface/ifindex" "/sys/class/net/$iproute_shunt_interface/operstate" 2>/dev/null
 		ip -o address show dev "$iproute_shunt_interface" 2>/dev/null | awk '{print $2, $3, $4}'
+		# DAD can finish without changing an address, route or link state.
+		# Include the same readiness decision used when installing PBR routes.
+		for family in 4 6; do
+			if nft_pbr_ready "$family" "$iproute_shunt_interface"; then
+				printf 'proxy_ready%s=1\n' "$family"
+			else
+				printf 'proxy_ready%s=0\n' "$family"
+			fi
+		done
 	fi
 	ip -4 route show default
 	ip -6 route show default
