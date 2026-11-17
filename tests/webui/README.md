@@ -11,6 +11,7 @@ The current fixtures are prepared separately from this directory:
 - HTTP rule-list files are served from `/tmp/passwall-webui-acceptance/http` on port `20181`.
 - The slow HTTP handler is `/tmp/passwall-webui-acceptance/slow-http.py` on port `20183`.
 - Protocol endpoints run on the test router at `127.0.0.1:20191–20199`; the upstream SOCKS fixture listens on `127.0.0.1:20180` and `[::1]:20180`.
+- `phase31-chinadns-auto` changes the test router's resolver input to simulate WAN DNS changes and invokes the actual hotplug handler. Back up `/tmp/resolv.conf.d/resolv.conf.auto` as well as the router configuration. The system dnsmasq `server` list must be empty so automatic mode reads the WAN resolver input. Prepare the loopback DNS fixtures shown below and stop them after restoring the router.
 - For `phase30-default-dns`, run `python3 tests/fixtures/dns/default_servers.py` on `HTTP_HOST`. Its UDP ports `20531` and `20532` return distinct synthetic answers for real DNS-selection checks.
 - For `phase28-node-actions`, copy `tests/test_url_test_lock.sh` to `/tmp/passwall-test-url-lock.sh` on the test router.
 - `HTTP_HOST` can replace `192.168.114.215` when the HTTP fixture host differs. The fixture ports and paths remain fixed by these cases.
@@ -18,6 +19,20 @@ The current fixtures are prepared separately from this directory:
 The router must be reachable over HTTP at the LuCI Passwall URL and by root SSH with key-based, non-interactive authentication; its SSH host key must already be trusted. The runner currently logs into LuCI as `root` with an empty password. Python Playwright and its Chromium browser must already be installed.
 
 Some cases make real DNS and proxy requests, including probes to `www.gstatic.com` and `www.google.com`; the test network must support the expected fixture and upstream traffic.
+
+For `phase31-chinadns-auto`, run on the dedicated test router as root. These
+instances answer only the test domain and do not change the system DNS service:
+
+```sh
+for side in 2 3; do
+  case "$side" in 2) answer=8.8.8.8 ;; 3) answer=9.9.9.9 ;; esac
+  dnsmasq --keep-in-foreground --conf-file=/dev/null \
+    --pid-file="/tmp/passwall-auto-dns-$side.pid" --log-facility=- \
+    --listen-address="127.0.0.$side" --bind-interfaces --port=53 \
+    --no-hosts --no-resolv --address="/pw-auto-dns.example.org/$answer" --local=/#/ \
+    >"/tmp/passwall-auto-dns-$side.log" 2>&1 </dev/null &
+done
+```
 
 ## Running
 
@@ -36,7 +51,7 @@ python3 tests/webui/run.py \
   phase17-domain-routing phase18-refs phase19-validation phase20-modes \
   phase21-no-node-xray phase22-concurrent-tests phase23-recovery-reset \
   phase24-fallback-stale phase25-core-options phase26-large-rules \
-  phase27-save-copy phase28-node-actions phase29-pending-url-test phase30-default-dns
+  phase27-save-copy phase28-node-actions phase29-pending-url-test phase30-default-dns phase31-chinadns-auto
 ```
 
 Each positional `CASE` may be given with or without `.py`; cases run in the supplied order. `phase1` creates the artifact `ids.json` used by later cases, so keep the same artifact directory and router for the whole sequence. A single case can be run by itself only when its earlier-case state and IDs are already present. `final-defaults-reboot` instead requires a freshly initialized profile and the upstream fixture to start automatically across a router reboot. It uses the native system reboot page and requires correctly configured LAN bypass lists.

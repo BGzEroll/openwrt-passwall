@@ -107,6 +107,13 @@ first_dns() {
  printf '%s\n' "${1%%,*}"
 }
 
+chinadns_local_servers() {
+	case "$1" in
+		127.0.0.1\#*) first_dns "$1" ;;
+		*) printf '%s\n' "$1" ;;
+	esac
+}
+
 check_port_exists() {
 	port=$1
 	protocol=$2
@@ -390,7 +397,7 @@ start_dns() {
 	IPT_APPEND_DNS="$LOCAL_DNS"
 	debuglog DNS "生成 DNS 配置"
 
-	local china_ng_local_dns=$(IFS=','; set -- $LOCAL_DNS; [ "${1%%[#:]*}" = "127.0.0.1" ] && echo "$1" || ([ -n "$2" ] && echo "$1,$2" || echo "$1"))
+	local china_ng_local_dns=$(chinadns_local_servers "$LOCAL_DNS")
 	local direct_dns_mode=$(config_t_get global direct_dns_mode "auto")
 	case "$direct_dns_mode" in
 		udp)
@@ -736,7 +743,7 @@ app_system_restore() {
 }
 
 app_apply() {
-	local work="$1" routes_changed=0
+	local work="$1" routes_changed=0 china_dns=
 	if ! cmp -s "$work/network" "$STATE_PATH/network"; then
 		routes_changed=1
 		nft_routes_save "$work"
@@ -752,7 +759,10 @@ app_apply() {
 		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
 		return 1
 	fi
-	if ! app_dns_apply "$work" || ! lua "$APP_PATH/process.lua" reload_files "$PROCESS_DIR"; then
+	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
+		china_dns=$(chinadns_local_servers "$LOCAL_DNS")
+	fi
+	if ! app_dns_apply "$work" || ! lua "$APP_PATH/process.lua" reload_files "$PROCESS_DIR" "$china_dns"; then
 		[ "${APP_DNS_APPLIED:-0}" != 1 ] || app_dns_restore "$work"
 		if [ -s "$STATE_PATH/rules.nft" ]; then nft_restore; else nft_stop; fi
 		app_system_restore "$work"

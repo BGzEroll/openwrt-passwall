@@ -93,14 +93,26 @@ local function ports_ready(instance)
  return true
 end
 
--- ChinaDNS reads domain files only at startup. Keep each running instance's
+-- ChinaDNS reads its configuration and domain files only at startup. Keep each instance's
 -- inputs immutable so a failed replacement can restart the old instance.
-local function dns_files(expected)
+local function dns_files(expected, direct_dns)
  local changed, created, obsolete = false, {}, {}
  for name, instance in pairs(expected) do
   if instance.command[3]:match('/chinadns%-ng$') then
    local source = (instance.data or {}).source_config or config_arg(instance.command)
    local text = assert(fs.readfile(source))
+   if direct_dns and direct_dns ~= '' then
+    -- Refresh automatic upstreams in the candidate, preserving the old live snapshot.
+    local group
+    text = text:gsub('[^\r\n]+', function(line)
+     group = line:match('^%s*group%s+(%S+)') or group
+     local option = line:match('^%s*([%w%-]+)%s+')
+     if option == 'china-dns' or (option == 'group-upstream' and (group == 'vpslist' or group == 'directlist')) then
+      return option .. ' ' .. direct_dns
+     end
+     return line
+    end)
+   end
    local files, content = {}, {}
    for option, path in text:gmatch('([%w%-]+)%s+([^\r\n]+)') do
     if option == 'group-dnl' or option == 'gfwlist-file' then
@@ -149,7 +161,7 @@ end
 
 local function reload_files()
  local previous, expected = plans(directory), plans(directory)
- local changed, created, obsolete = dns_files(expected)
+ local changed, created, obsolete = dns_files(expected, arg[3])
  if not changed then return end
  local ok, err = pcall(function()
   call('set', {name='passwall', instances=expected})
