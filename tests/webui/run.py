@@ -269,8 +269,8 @@ def update(names, expected="done"):
     state = job()
     assert state["state"] == expected, state
     wait(lambda: page.locator("[data-rule-update-start]").is_enabled(), 15)
-    message = "更新完成" if expected == "done" else "失败"
-    wait(lambda: message in page.locator("[data-rule-update-status]").inner_text(), 15)
+    wait(lambda: page.locator("[data-rule-update-status]").inner_text() == "" if expected == "done"
+         else "失败" in page.locator("[data-rule-update-status]").inner_text(), 15)
 
 
 def write_results():

@@ -75,8 +75,8 @@ local domain_pattern = "([%w%-%_]+%.[%w%.%-%_]+)[%/%*]*"
 local excluded_domain = {"apple.com","sina.cn","sina.com.cn","baidu.com","byr.cn","jlike.com","weibo.com","zhongsou.com","youdao.com","sogou.com","so.com","soso.com","aliyun.com","taobao.com","jd.com","qq.com","bing.com"}
 
 local gfwlist_url = ucic:get(name, "@global_rules[0]", "gfwlist_url") or {"https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt"}
-local chnroute_url = ucic:get(name, "@global_rules[0]", "chnroute_url") or {"https://ispip.clang.cn/all_cn.txt"}
-local chnroute6_url =  ucic:get(name, "@global_rules[0]", "chnroute6_url") or {"https://ispip.clang.cn/all_cn_ipv6.txt"}
+local chnroute_url = ucic:get(name, "@global_rules[0]", "chnroute_url") or {"https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt"}
+local chnroute6_url =  ucic:get(name, "@global_rules[0]", "chnroute6_url") or {"https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt"}
 if arg3 == "cron" then
 	arg2 = nil
 end

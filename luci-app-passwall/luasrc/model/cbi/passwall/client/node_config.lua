@@ -19,6 +19,7 @@ o.default = translate("Remarks")
 o.rmempty = false
 
 o = s:option(DummyValue, "type", translate("Core"))
+o.template = "passwall/value_text"
 o.cfgvalue = function()
 	return "Xray"
 end

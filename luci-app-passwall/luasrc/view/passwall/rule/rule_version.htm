@@ -49,16 +49,6 @@ for name in (self:cfgvalue(section) or ""):gmatch("%S+") do selected[name] = tru
 			}
 		}
 
-		function formatTimestamp(value) {
-			var timestamp = Number(value);
-			if (value != null && value !== "" && isFinite(timestamp)) {
-				var date = new Date(timestamp * 1000);
-				if (!isNaN(date.getTime()))
-					return date.toLocaleString();
-			}
-			return String(value);
-		}
-
 		function setControls() {
 			var disabled = running || startRequest;
 			button.disabled = disabled;
@@ -91,27 +81,8 @@ for name in (self:cfgvalue(section) or ""):gmatch("%S+") do selected[name] = tru
 				completedAt = result.finished_at;
 				document.dispatchEvent(new CustomEvent('passwall-rules-updated'));
 			}
-			var message = result.message ? String(result.message) : "";
-			var label;
 			running = state === "downloading" || state === "applying";
-			if (running) {
-				label = state === "downloading" ? "<%:正在下载规则%>" : "<%:正在应用规则%>";
-			} else if (state === "done") {
-				label = "<%:规则更新完成%>";
-			} else if (state === "failed") {
-				label = "<%:规则更新失败%>";
-			} else if (state === "idle") {
-				label = "<%:当前没有正在运行的更新任务%>";
-			} else {
-				label = "<%:无法识别更新状态%>";
-			}
-
-			var details = [message || label];
-			if (!running && result.finished_at) {
-				var timeLabel = state === "done" ? "<%:更新时间%>" : "<%:任务结束时间%>";
-				details.push(timeLabel + "：" + formatTimestamp(result.finished_at));
-			}
-			statusNode.textContent = details.join("；");
+			statusNode.textContent = state === "failed" ? (result.message || "<%:规则更新失败%>") : "";
 			setControls();
 			if (running)
 				schedulePoll();
@@ -166,7 +137,7 @@ for name in (self:cfgvalue(section) or ""):gmatch("%S+") do selected[name] = tru
 			startRequest = true;
 			statusEpoch++;
 			setControls();
-			statusNode.textContent = "<%:正在提交更新任务…%>";
+			statusNode.textContent = "";
 			XHR.get(updateUrl, { update: selected.join(",") }, function(xhr, data) {
 				startRequest = false;
 				var result = parseResponse(xhr, data);

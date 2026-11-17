@@ -46,7 +46,5 @@ config global_rules
 	option week_update '4'
 	option time_update '6'
 	list gfwlist_url 'https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt'
-	list chnroute_url 'https://ispip.clang.cn/all_cn.txt'
 	list chnroute_url 'https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt'
-	list chnroute6_url 'https://ispip.clang.cn/all_cn_ipv6.txt'
 	list chnroute6_url 'https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt'

@@ -172,9 +172,13 @@ o:value("https://ispip.clang.cn/all_cn_cidr.txt", "Clang.CN.CIDR")
 o:value("https://fastly.jsdelivr.net/gh/soffchen/GeoIP2-CN@release/CN-ip-cidr.txt", "soffchen/GeoIP2-CN")
 o:value("https://fastly.jsdelivr.net/gh/Hackl0us/GeoIP2-CN@release/CN-ip-cidr.txt", "Hackl0us/GeoIP2-CN")
 
+o.default = "https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt"
+
 o = rules:taboption("update", DynamicList, "chnroute6_url", translate("中国 IPv6 列表 URL"))
 o:value("https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt", "gaoyifan/china-operator-ip/china6")
 o:value("https://ispip.clang.cn/all_cn_ipv6.txt", "Clang.CN.IPv6")
+
+o.default = "https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt"
 
 o = rules:taboption("update", Flag, "auto_update", translate("自动更新"))
 o.default = 1
