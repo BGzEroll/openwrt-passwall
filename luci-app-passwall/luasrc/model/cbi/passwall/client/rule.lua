@@ -193,7 +193,7 @@ o:value(4, translate("每周四"))
 o:value(5, translate("每周五"))
 o:value(6, translate("每周六"))
 o:value(0, translate("每周日"))
-o.default = 4
+o.default = 7
 o:depends("auto_update", true)
 o.rmempty = true
 

@@ -370,7 +370,7 @@ app_crontab() {
 	# Remove only Passwall-owned entries, including obsolete jobs from older builds.
 	sed '\|/usr/share/passwall/|d; \|/etc/init.d/passwall|d' /etc/crontabs/root > "$file" || return 1
 	if [ "$active" = 1 ] && [ "$(config_t_get global_rules auto_update 0)" = 1 ]; then
-		week=$(config_t_get global_rules week_update 4)
+		week=$(config_t_get global_rules week_update 7)
 		hour=$(config_t_get global_rules time_update 6)
 		case "$week" in
 			0|1|2|3|4|5|6) ;;
