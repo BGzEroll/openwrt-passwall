@@ -1,17 +1,18 @@
 #!/usr/bin/lua
 
-require 'nixio'
-require 'luci.sys'
-local luci = luci
-local ucic = luci.model.uci.cursor()
+local nixio = require "nixio"
+local sys = require "luci.sys"
+local ucic = require("luci.model.uci").cursor()
 local datatypes = require "luci.cbi.datatypes"
-local name = 'passwall'
-local api = require ("luci.passwall.api")
+local name = "passwall"
+local api = require "luci.passwall.api"
 local fs, json = api.fs, api.jsonc
 local state_file = "/var/run/passwall/rule-update.json"
+
 local function job_read()
 	return json.parse(fs.readfile(state_file) or "") or {state="idle", message="尚未更新"}
 end
+
 local function job_write(state, message, fresh)
 	local job = fresh and {started_at=os.time()} or job_read()
 	job.state, job.message = state, message
@@ -20,7 +21,11 @@ local function job_write(state, message, fresh)
 	assert(fs.rename(state_file .. ".next", state_file), "更新状态发布失败")
 	return job
 end
-local function active(job) return job.state == "downloading" or job.state == "applying" end
+
+local function active(job)
+	return job.state == "downloading" or job.state == "applying"
+end
+
 local operation = arg[1]
 if operation == "prepare" then
 	if arg[2] then
@@ -51,22 +56,16 @@ elseif operation == "status" or operation == "status-idle" or operation == "busy
 	print(json.stringify(job))
 	os.exit(0)
 end
+
 if os.getenv("PASSWALL_RULE_UPDATE_LOCKED") ~= "1" then
 	io.stderr:write("请通过 rule_update.sh 运行规则更新\n")
 	os.exit(2)
 end
-local arg1 = arg[1]
-local arg2 = arg[2]
-local arg3 = arg[3]
 
 local rule_path = "/usr/share/" .. name .. "/rules"
-local task_tmp_dir
-local rule_publish_dir
+local task_tmp_dir, rule_publish_dir
 local staged_rules = {}
 local update_failed = false
-local gfwlist_update = 0
-local chnroute_update = 0
-local chnroute6_update = 0
 
 -- match comments/title/whitelist/ip address/excluded_domain
 local comment_pattern = "^[#!\\[@]+"
@@ -74,86 +73,68 @@ local ip_pattern = "^%d+%.%d+%.%d+%.%d+"
 local domain_pattern = "([%w%-%_]+%.[%w%.%-%_]+)[%/%*]*"
 local excluded_domain = {"apple.com","sina.cn","sina.com.cn","baidu.com","byr.cn","jlike.com","weibo.com","zhongsou.com","youdao.com","sogou.com","so.com","soso.com","aliyun.com","taobao.com","jd.com","qq.com","bing.com"}
 
-local gfwlist_url = ucic:get(name, "@global_rules[0]", "gfwlist_url") or {"https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt"}
-local chnroute_url = ucic:get(name, "@global_rules[0]", "chnroute_url") or {"https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt"}
-local chnroute6_url =  ucic:get(name, "@global_rules[0]", "chnroute6_url") or {"https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt"}
-if arg3 == "cron" then
-	arg2 = nil
-end
+local rules = {
+	{
+		name="gfwlist", label="GFW 域名", type="domain", exclude_domain=true, decode=true, default=0,
+		urls=ucic:get(name, "@global_rules[0]", "gfwlist_url") or {"https://fastly.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt"}
+	},
+	{
+		name="chnroute", label="中国 IPv4", type="ip4", default=1,
+		urls=ucic:get(name, "@global_rules[0]", "chnroute_url") or {"https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt"}
+	},
+	{
+		name="chnroute6", label="中国 IPv6", type="ip6", default=1,
+		urls=ucic:get(name, "@global_rules[0]", "chnroute6_url") or {"https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt"}
+	}
+}
 
-local log = function(...)
-	if arg1 then
-		if arg1 == "log" then
-			api.log("规则", ...)
-		elseif arg1 == "print" then
-			local result = os.date("%Y-%m-%d %H:%M:%S [规则] ") .. table.concat({...}, " ")
-			print(result)
+local selected = {}
+if operation then
+	for entry in operation:gmatch("[^,]+") do
+		if entry == "gfwlist" or entry == "chnroute" or entry == "chnroute6" then
+			selected[entry] = true
+		end
+	end
+else
+	for _, rule in ipairs(rules) do
+		if tonumber(ucic:get_first(name, "global_rules", rule.name .. "_update", rule.default)) == 1 then
+			selected[rule.name] = true
 		end
 	end
 end
 
-local function trim(value)
-	return (value or ""):gsub("^%s*(.-)%s*$", "%1")
+local function log(...)
+	api.log("规则", ...)
 end
 
 local function shell_quote(value)
 	return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
-local function read_file(path)
-	local file = io.open(path, "rb")
-	if not file then
-		return nil
-	end
-	local content = file:read("*all")
-	local ok = file:close()
-	if not content or ok == nil then
-		return nil
-	end
-	return content
-end
-
-local function write_file(path, content)
-	local file = io.open(path, "wb")
-	if not file then
-		return false
-	end
-	local ok = file:write(content)
-	local close_ok = file:close()
-	return ok ~= nil and close_ok ~= nil
-end
-
 local function create_task_tmp_dir()
-	local path = trim(luci.sys.exec("mktemp -d /tmp/passwall-rule-update.XXXXXX 2>/dev/null"))
+	local path = (sys.exec("mktemp -d /tmp/passwall-rule-update.XXXXXX 2>/dev/null") or ""):match("^%s*(.-)%s*$")
 	if path:match("^/tmp/passwall%-rule%-update%.[A-Za-z0-9]+$") and nixio.fs.stat(path, "type") == "dir" then
 		return path
 	end
-	return nil
 end
 
 local function cleanup_task_tmp_dir()
 	if task_tmp_dir and task_tmp_dir:match("^/tmp/passwall%-rule%-update%.[A-Za-z0-9]+$") then
-		luci.sys.call("rm -rf " .. shell_quote(task_tmp_dir) .. " >/dev/null 2>&1")
+		sys.call("rm -rf " .. shell_quote(task_tmp_dir) .. " >/dev/null 2>&1")
 	end
 end
 
--- curl, returning both the process status and the final HTTP status.
+-- curl_logic retains the proxy-first fallback; curl's retry policy applies to
+-- both the SOCKS attempt and the direct fallback.
 local function curl(url, file)
-	local args = {
-		"-skfL", "-w %{http_code}", "--retry 3", "--connect-timeout 3", "--max-time 120"
-	}
-	if file then
-		args[#args + 1] = "-o " .. file
-	end
+	local args = {"-skfL", "-w %{http_code}", "--retry 3", "--connect-timeout 3", "--max-time 120", "-o " .. file}
 	local return_code, result = api.curl_logic(url, nil, args)
 	return return_code, tonumber(result)
 end
 
 local function check_excluded_domain(value)
 	for _, domain in ipairs(excluded_domain) do
-		if api.domain_matches(value, domain) then
-			return true
-		end
+		if api.domain_matches(value, domain) then return true end
 	end
 	return false
 end
@@ -162,7 +143,7 @@ local function parse_rule_content(content, rule_type, exclude_domain)
 	local entries = {}
 	content = content:gsub("\r\n", "\n"):gsub("\r", "\n")
 	for line in (content .. "\n"):gmatch("(.-)\n") do
-		line = trim(line)
+		line = line:gsub("^%s*(.-)%s*$", "%1")
 		if line ~= "" and not line:find(comment_pattern) then
 			if rule_type == "domain" then
 				if not line:find(ip_pattern) then
@@ -173,176 +154,110 @@ local function parse_rule_content(content, rule_type, exclude_domain)
 					end
 				end
 			elseif rule_type == "ip4" then
-				if datatypes.ipmask4(line) or datatypes.ip4addr(line) then
-					entries[line] = true
-				end
+				if datatypes.ipmask4(line) or datatypes.ip4addr(line) then entries[line] = true end
 			elseif rule_type == "ip6" then
-				if datatypes.ipmask6(line) or datatypes.ip6addr(line) then
-					entries[line] = true
-				end
+				if datatypes.ipmask6(line) or datatypes.ip6addr(line) then entries[line] = true end
 			end
 		end
 	end
-	local sorted = {}
-	for entry in pairs(entries) do
-		sorted[#sorted + 1] = entry
-	end
-	table.sort(sorted)
-	return sorted
+	return entries
 end
 
 local function read_old_rule(rule_name)
 	local path = rule_path .. "/" .. rule_name
-	local content = read_file(path)
-	if content == nil and nixio.fs.access(path) then
-		return nil, false
-	end
+	local content = fs.readfile(path)
+	if content == nil and nixio.fs.access(path) then return nil, false end
 	return content, true
 end
 
--- Download, parse, and stage one text rule. The staged filename is on the
--- init-script whitelist; publication and application happen after all fetches.
-local function fetch_rule(rule_name, rule_type, urls, exclude_domain)
-	if type(urls) == "string" then
-		urls = {urls}
-	end
+-- Stage a list only after every configured source downloads and parses.
+local function fetch_rule(rule)
+	local urls = rule.urls
+	if type(urls) == "string" then urls = {urls} end
 	if type(urls) ~= "table" or #urls == 0 then
-		log(rule_name .. " 没有可用下载地址，保留原规则文件。")
+		log(rule.name .. " 没有可用下载地址，保留原规则文件。")
 		return false
 	end
 
-	job_write("downloading", "下载：" .. ({gfwlist="GFW 域名", chnroute="中国 IPv4", chnroute6="中国 IPv6"})[rule_name])
-	api.log_debug("规则", rule_name .. "：开始下载")
-	local entries = {}
-	local failed = false
+	job_write("downloading", "下载：" .. rule.label)
+	api.log_debug("规则", rule.name .. "：开始下载")
+	local entries, failed = {}, false
 	for index, url in ipairs(urls) do
-		local download_path = task_tmp_dir .. "/" .. rule_name .. "_download_" .. index
+		local download_path = task_tmp_dir .. "/" .. rule.name .. "_download_" .. index
 		local curl_status, http_status = curl(url, download_path)
 		if curl_status ~= 0 or http_status ~= 200 then
 			failed = true
-			log(rule_name .. " 第" .. index .. "条规则下载失败（curl=" .. tostring(curl_status) .. "，HTTP=" .. tostring(http_status) .. "），保留原规则文件。")
+			log(rule.name .. " 第" .. index .. "条规则下载失败（curl=" .. tostring(curl_status) .. "，HTTP=" .. tostring(http_status) .. "），保留原规则文件。")
 		else
-			local content = read_file(download_path)
+			local content = fs.readfile(download_path)
 			if not content or #content == 0 then
 				failed = true
-				log(rule_name .. " 第" .. index .. "条规则下载文件为空或读取失败，保留原规则文件。")
+				log(rule.name .. " 第" .. index .. "条规则下载文件为空或读取失败，保留原规则文件。")
 			else
-				if rule_name == "gfwlist" then
-					content = api.base64Decode(content)
-				end
-				local parsed = parse_rule_content(content, rule_type, exclude_domain)
-				if #parsed == 0 then
+				if rule.decode then content = api.base64Decode(content) end
+				local parsed = parse_rule_content(content, rule.type, rule.exclude_domain)
+				if not next(parsed) then
 					failed = true
-					log(rule_name .. " 第" .. index .. "条规则解析结果为空，保留原规则文件。")
+					log(rule.name .. " 第" .. index .. "条规则解析结果为空，保留原规则文件。")
 				else
-					for _, entry in ipairs(parsed) do
-						entries[entry] = true
-					end
+					for entry in pairs(parsed) do entries[entry] = true end
 				end
 			end
 		end
 	end
-
-	if failed then
-		return false
-	end
+	if failed then return false end
 
 	local sorted = {}
-	for entry in pairs(entries) do
-		sorted[#sorted + 1] = entry
-	end
+	for entry in pairs(entries) do sorted[#sorted + 1] = entry end
 	table.sort(sorted)
-	if #sorted == 0 then
-		log(rule_name .. " 解析结果为空，保留原规则文件。")
-		return false
-	end
-
 	local content = table.concat(sorted, "\n") .. "\n"
-	local old_content, old_readable = read_old_rule(rule_name)
+	local old_content, old_readable = read_old_rule(rule.name)
 	if not old_readable then
-		log(rule_name .. " 原规则文件读取失败，保留原文件。")
+		log(rule.name .. " 原规则文件读取失败，保留原文件。")
 		return false
 	end
 	if old_content == content then
-		api.log_debug("规则", rule_name .. "：内容未变化")
+		api.log_debug("规则", rule.name .. "：内容未变化")
 		return true
 	end
 
-	local staged_path = rule_publish_dir .. "/" .. rule_name
-	if not write_file(staged_path, content) then
+	local staged_path = rule_publish_dir .. "/" .. rule.name
+	if not fs.writefile(staged_path, content) then
 		os.remove(staged_path)
-		log(rule_name .. " 暂存文件写入失败，保留原规则文件。")
+		log(rule.name .. " 暂存文件写入失败，保留原规则文件。")
 		return false
 	end
-	staged_rules[#staged_rules + 1] = { name = rule_name, count = #sorted }
+	staged_rules[#staged_rules + 1] = {name=rule.name, label=rule.label, count=#sorted}
 	return true
 end
 
-local function fetch_gfwlist()
-	return fetch_rule("gfwlist", "domain", gfwlist_url, true)
-end
-
-local function fetch_chnroute()
-	return fetch_rule("chnroute", "ip4", chnroute_url, false)
-end
-
-local function fetch_chnroute6()
-	return fetch_rule("chnroute6", "ip6", chnroute6_url, false)
-end
-
-local function run_task(label, callback)
-	local ok, result = xpcall(callback, function(e)
+local function run_task(rule)
+	local ok, result = xpcall(function() return fetch_rule(rule) end, function(err)
 		api.log_debug("规则", debug.traceback())
-		return tostring(e)
+		return tostring(err)
 	end)
 	if not ok then
 		update_failed = true
-		log(label .. " 更新发生错误：" .. tostring(result))
-		return false
+		log(rule.name .. " 更新发生错误：" .. tostring(result))
 	elseif result == false then
 		update_failed = true
-		return false
 	end
-	return true
 end
 
 local function apply_staged_rules()
-	if #staged_rules == 0 then
-		return false
-	end
 	job_write("applying", "正在应用规则")
 	local command = "/etc/init.d/" .. name .. " update_rules " .. shell_quote(rule_publish_dir) .. " >/dev/null 2>&1"
-	local status = luci.sys.call(command)
-	if status ~= 0 then
+	if sys.call(command) ~= 0 then
 		log("规则文件发布或应用失败，原规则文件保持不变。")
 		return false
 	end
 	for _, rule in ipairs(staged_rules) do
-		log("更新完成：" .. ({gfwlist="GFW 域名", chnroute="中国 IPv4", chnroute6="中国 IPv6"})[rule.name] .. " " .. rule.count .. " 条")
+		log("更新完成：" .. rule.label .. " " .. rule.count .. " 条")
 	end
 	return true
 end
 
-
-if arg2 then
-	string.gsub(arg2, '[^' .. "," .. ']+', function(w)
-		if w == "gfwlist" then
-			gfwlist_update = 1
-		end
-		if w == "chnroute" then
-			chnroute_update = 1
-		end
-		if w == "chnroute6" then
-			chnroute6_update = 1
-		end
-	end)
-else
-	gfwlist_update = ucic:get_first(name, 'global_rules', "gfwlist_update", 0)
-	chnroute_update = ucic:get_first(name, 'global_rules', "chnroute_update", 1)
-	chnroute6_update = ucic:get_first(name, 'global_rules', "chnroute6_update", 1)
-end
-
-if (tonumber(gfwlist_update) or 0) == 0 and (tonumber(chnroute_update) or 0) == 0 and (tonumber(chnroute6_update) or 0) == 0 then
+if not next(selected) then
 	job_write("done", "没有选择需要更新的列表")
 	os.exit(0)
 end
@@ -364,21 +279,13 @@ else
 end
 
 if task_tmp_dir and rule_publish_dir then
-	if tonumber(gfwlist_update) == 1 then
-		run_task("gfwlist", fetch_gfwlist)
-	end
-	if tonumber(chnroute_update) == 1 then
-		run_task("chnroute", fetch_chnroute)
-	end
-	if tonumber(chnroute6_update) == 1 then
-		run_task("chnroute6", fetch_chnroute6)
+	for _, rule in ipairs(rules) do
+		if selected[rule.name] then run_task(rule) end
 	end
 end
 
-if rule_publish_dir then
-	if #staged_rules > 0 and not apply_staged_rules() then
-		update_failed = true
-	end
+if rule_publish_dir and #staged_rules > 0 and not apply_staged_rules() then
+	update_failed = true
 end
 cleanup_task_tmp_dir()
 if update_failed then

@@ -32,26 +32,14 @@ local function config_arg(command)
  end
 end
 local function validate(instance)
- local command = instance.command
- local binary = command[3]
- assert(fs.access(binary, 'x'), '程序不存在或不可执行: ' .. binary)
- local config = config_arg(command)
- local check
- if config and binary:match('/xray$') then
-  check = quote(binary) .. ' run -test -c ' .. quote(config)
-
- end
- if check then
-  local output = directory .. '/validation.log'
-  if sys.call(check .. ' >' .. quote(output) .. ' 2>&1') ~= 0 then
-   local detail = (fs.readfile(output) or ''):gsub('%s+$', '')
-   api.log_debug('核心', detail)
-   local reason
-   for line in detail:gmatch('[^\r\n]+') do reason = line end
-   error((binary:match('[^/]+$') or binary) .. ' 配置校验失败：' .. (reason or '未知原因'), 0)
-  end
- elseif config and config:match('%.json$') then
-  read(config)
+ local binary = instance.command[3]
+ if binary ~= '/usr/bin/xray' then return end
+ local config = assert(config_arg(instance.command))
+ local output = directory .. '/validation.log'
+ if sys.call(quote(binary) .. ' run -test -c ' .. quote(config) .. ' >' .. quote(output) .. ' 2>&1') ~= 0 then
+  local detail = (fs.readfile(output) or ''):gsub('%s+$', '')
+  api.log_debug('核心', detail)
+  error('Xray 配置校验失败：' .. (detail:match('[^\r\n]+$') or '未知原因'), 0)
  end
 end
 local function listening(protocol, port)
@@ -159,30 +147,42 @@ local function remove_folders(folders)
  for _, folder in ipairs(folders) do fs.remover(folder) end
 end
 
+local function wait_ready(expected, message)
+ for _ = 1, 50 do
+  local service = call('list', {name='passwall'}).passwall or {}
+  local ready = true
+  for name, instance in pairs(expected) do
+   local live = (service.instances or {})[name]
+   if not live or not live.running or not ports_ready(instance) then
+    ready = false
+    break
+   end
+  end
+  if ready then return end
+  nixio.nanosleep(0, 100000000)
+ end
+ error(message, 0)
+end
+
 local function reload_files()
- local previous, expected = plans(directory), plans(directory)
+ local expected = plans(directory)
  local changed, created, obsolete = dns_files(expected, arg[3])
  if not changed then return end
+ local previous = plans(directory)
+ local dns = {}
+ for name, instance in pairs(expected) do
+  if instance.command[3] == '/usr/bin/chinadns-ng' then dns[name] = instance end
+ end
  local ok, err = pcall(function()
   call('set', {name='passwall', instances=expected})
-  for _ = 1, 50 do
-   local service = call('list', {name='passwall'}).passwall or {}
-   local ready = true
-   for name, instance in pairs(expected) do
-    local live = (service.instances or {})[name]
-    if not live or not live.running or not ports_ready(instance) then ready = false end
-   end
-   if ready then return end
-   nixio.nanosleep(0, 100000000)
-  end
-  error('DNS 文件规则加载失败')
+  wait_ready(dns, 'ChinaDNS-NG 配置加载失败')
  end)
  if not ok then
   call('set', {name='passwall', instances=previous})
   remove_folders(created)
   error(err, 0)
  end
- for name, instance in pairs(expected) do
+ for name, instance in pairs(dns) do
   assert(fs.writefile(directory .. '/' .. name .. '.json', json.stringify(instance)))
  end
  remove_folders(obsolete)
@@ -224,7 +224,7 @@ local function status()
  local enabled = uci:get('passwall', '@global[0]', 'enabled') == '1'
  local running = not not fs.access(root .. '/running')
  local pbr = uci:get('passwall', '@global_forwarding[0]', 'iproute_shunt') == '1'
- local nft_ready = sys.call('nft list table inet passwall >/dev/null 2>&1') == 0
+ local nft_ready = sys.call("nft list tables | grep -Fxq 'table inet passwall'") == 0
  local forwarding = nft_ready
  for _, family in ipairs({4, 6}) do
   local routes = sys.exec('ip -' .. family .. ' route show table 100 2>/dev/null')
@@ -270,14 +270,13 @@ local ok, err = pcall(function()
   print(json.stringify(status()))
  elseif action == 'plan' then
   local command = {'/usr/share/passwall/process.sh', arg[3], arg[4]}
-  for i = 6, #arg do command[#command + 1] = arg[i] end
+  for i = 5, #arg do command[#command + 1] = arg[i] end
   local count = 0
   for _ in pairs(plans(directory)) do count = count + 1 end
   local instance = {command=command, respawn={"3600", "5", "5"}, term_timeout=3,
    env={V2RAY_LOCATION_ASSET='/usr/share/v2ray/', XRAY_LOCATION_ASSET='/usr/share/v2ray/'}}
   assert(fs.writefile(directory .. '/process' .. (count + 1) .. '.json', json.stringify(instance)))
  elseif action == 'validate' then
-  assert(not fs.access(directory .. '/error'), '核心配置生成失败')
   for _, instance in pairs(plans(directory)) do validate(instance) end
  elseif action == 'start' then
   local expected = plans(directory)
@@ -286,6 +285,7 @@ local ok, err = pcall(function()
    assert(fs.writefile(directory .. '/' .. name .. '.json', json.stringify(instance)))
   end
   call('set', {name='passwall', instances=expected})
+  wait_ready(expected, '核心或 DNS 进程未就绪')
  elseif action == 'reload_files' then
   reload_files()
  elseif action == 'stop' then
@@ -302,19 +302,6 @@ local ok, err = pcall(function()
    nixio.nanosleep(0, 100000000)
   end
   error('procd 进程未能退出')
- elseif action == 'ready' then
-  local expected = plans(directory)
-  for _ = 1, 50 do
-   local service = call('list', {name='passwall'}).passwall
-   local ready = true
-   for name, instance in pairs(expected) do
-    local running = service and service.instances and service.instances[name]
-    if not running or not running.running or not ports_ready(instance) then ready = false; break end
-   end
-   if ready then return end
-   nixio.nanosleep(0, 100000000)
-  end
-  error('核心或 DNS 进程未就绪')
  else error('Unknown process operation') end
 end)
 if not ok then

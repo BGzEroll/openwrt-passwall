@@ -51,7 +51,12 @@ run_case() {
 		network_get_ipaddr() { printf -v "$1" 203.0.113.1; }
 		network_get_ipaddr6() { printf -v "$1" 2001:db8::1; }
 		network_get_subnets() { printf -v "$1" 192.168.1.1/24; }
-		network_get_subnets6() { printf -v "$1" fd00::1/64; }
+		network_get_subnets6() {
+			case "$2" in
+				lan) printf -v "$1" '%s' '2001:db8:1::1/64 fd00::1/64' ;;
+				proxy) printf -v "$1" '%s' '2001:db8:1::114/64 2001:db8:2::114/64 fd00:0:0:1::114/64' ;;
+			esac
+		}
 		network_get_device() { printf -v "$1" br-lan; }
 		uci() {
 			if [ "$1" = "show" ]; then
@@ -105,7 +110,7 @@ run_case() {
 		# function-library API that emits the complete candidate table.
 		source <(sed 's#^\. /usr/share/passwall/network.sh$#:#' "$SCRIPT")
 		nft_offload_devices() { echo eth0,eth1; }
-		passwall_proxy_interfaces() { :; }
+		passwall_proxy_interfaces() { echo proxy; }
 		nft_read_config
 		nft_generate > "$TEST_RULES_FILE"
 	)
@@ -145,6 +150,15 @@ run_case 1
 
 OFF="$TEST_TMP/pbr_0/rules.nft"
 ON="$TEST_TMP/pbr_1/rules.nft"
+
+# During renumbering, both interfaces can report the same prefix with distinct
+# host bits. Reserved ranges, interface prefixes and the WAN host must merge
+# together instead of being inserted into the same interval set in stages.
+[ "$(grep -c '^add element inet passwall passwall_lanlist6 ' "$ON")" -eq 1 ]
+lan6=$(grep '^add element inet passwall passwall_lanlist6 ' "$ON")
+for address in fc00::/7 2001:db8:1::1/64 2001:db8:1::114/64 2001:db8:2::114/64 2001:db8::1; do
+	[[ "$lan6" == *"$address"* ]]
+done
 
 grep -q 'tproxy ip to :1041' "$OFF"
 grep -q 'tproxy ip6 to :1041' "$OFF"

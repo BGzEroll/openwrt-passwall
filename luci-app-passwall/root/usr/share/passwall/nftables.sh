@@ -111,14 +111,11 @@ get_wan6_ip() {
 	echo "$net_addr"
 }
 
-add_lan_network() {
+lan_networks() {
 	local logical_if="$1" subnets4 subnets6 device
 	[ -n "$logical_if" ] || return 0
 	network_get_subnets subnets4 "$logical_if"
 	network_get_subnets6 subnets6 "$logical_if"
-	[ -n "$subnets4" ] && insert_nftset "$NFTSET_LANLIST" -1 $subnets4
-	[ -n "$subnets6" ] && insert_nftset "$NFTSET_LANLIST6" -1 $subnets6
-
 	# network_get_subnets* is preferred; the device fallback covers unusual
 	# netifd state while retaining all bridge/VLAN addresses.
 	if [ -z "$subnets4$subnets6" ]; then
@@ -126,15 +123,31 @@ add_lan_network() {
 		[ -n "$device" ] || return 0
 		subnets4=$(ip -o -4 address show dev "$device" 2>/dev/null | awk '{print $4}')
 		subnets6=$(ip -o -6 address show dev "$device" scope global 2>/dev/null | awk '{print $4}')
-		[ -n "$subnets4" ] && insert_nftset "$NFTSET_LANLIST" -1 $subnets4
-		[ -n "$subnets6" ] && insert_nftset "$NFTSET_LANLIST6" -1 $subnets6
 	fi
+	printf '%s\n' $subnets4 $subnets6
+}
+
+setup_lan_sets() {
+	local logical_if subnets
+	network_flush_cache
+	subnets=$(
+		lan_networks lan
+		for logical_if in $iproute_shunt_logical_interfaces; do
+			[ "$logical_if" = lan ] || lan_networks "$logical_if"
+		done
+	)
+	# Auto-merge sees overlaps between interface prefixes and reserved ranges
+	# together when each set is populated by a single element command.
+	gen_nftset "$NFTSET_LANLIST" ipv4_addr 0 -1 $(gen_lanlist) \
+		$(printf '%s\n' "$subnets" | grep -vF :) $(get_wan_ip)
+	gen_nftset "$NFTSET_LANLIST6" ipv6_addr 0 -1 $(gen_lanlist_6) \
+		$(printf '%s\n' "$subnets" | grep -F :) $(get_wan6_ip)
 }
 
 setup_sets() {
+	setup_lan_sets
 	gen_nftset "$NFTSET_VPSLIST" ipv4_addr 0 0
 	gen_nftset "$NFTSET_GFW" ipv4_addr 2d 0
-	gen_nftset "$NFTSET_LANLIST" ipv4_addr 0 -1 $(gen_lanlist)
 	load_rule_set "$NFTSET_CHN" ipv4_addr chnroute
 	gen_nftset "$NFTSET_BLACKLIST" ipv4_addr 2d 0 $(grep -v '^#' "$RULES_PATH/proxy_ip" | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}')
 	gen_nftset "$NFTSET_WHITELIST" ipv4_addr 2d 0 $(grep -v '^#' "$RULES_PATH/direct_ip" | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}')
@@ -143,7 +156,6 @@ setup_sets() {
 
 	gen_nftset "$NFTSET_VPSLIST6" ipv6_addr 0 0
 	gen_nftset "$NFTSET_GFW6" ipv6_addr 2d 0
-	gen_nftset "$NFTSET_LANLIST6" ipv6_addr 0 -1 $(gen_lanlist_6)
 	load_rule_set "$NFTSET_CHN6" ipv6_addr chnroute6
 	gen_nftset "$NFTSET_BLACKLIST6" ipv6_addr 2d 0 $(grep -v '^#' "$RULES_PATH/proxy_ip" | grep -E ':')
 	gen_nftset "$NFTSET_WHITELIST6" ipv6_addr 2d 0 $(grep -v '^#' "$RULES_PATH/direct_ip" | grep -E ':')
@@ -163,19 +175,6 @@ setup_sets() {
 		insert_nftset "$NFTSET_SHUNTLIST" -1 $(config_n_get "$shunt_id" ip_list | tr -s '\r\n' '\n' | grep -E '([0-9]{1,3}\.){3}[0-9]{1,3}')
 		insert_nftset "$NFTSET_SHUNTLIST6" -1 $(config_n_get "$shunt_id" ip_list | tr -s '\r\n' '\n' | grep -E ':')
 	done
-
-	local logical_if
-	network_flush_cache
-	add_lan_network lan
-	for logical_if in $iproute_shunt_logical_interfaces; do
-		[ "$logical_if" = lan ] || add_lan_network "$logical_if"
-	done
-
-	local wan_ip wan6_ip
-	wan_ip=$(get_wan_ip)
-	wan6_ip=$(get_wan6_ip)
-	[ -n "$wan_ip" ] && insert_nftset "$NFTSET_LANLIST" -1 "$wan_ip"
-	[ -n "$wan6_ip" ] && insert_nftset "$NFTSET_LANLIST6" -1 "$wan6_ip"
 
 	local isp
 	for isp in $ISP_DNS; do
@@ -600,7 +599,10 @@ nft_read_config() {
 	iproute_shunt_offloading_interface=""
 	iproute_shunt_logical_interfaces=""
 	if [ "$iproute_shunt" = 1 ]; then
-		iproute_shunt_offloading_interface=$(nft_offload_devices) || return 1
+		if ! iproute_shunt_offloading_interface=$(nft_offload_devices 2>/dev/null); then
+			iproute_shunt_offloading_interface=""
+			debuglog 转发 "无法获取硬件加速接口，PBR 继续使用普通转发"
+		fi
 		iproute_shunt_logical_interfaces=$(passwall_proxy_interfaces "$iproute_shunt_interface")
 	fi
 	accept_icmp=$(config_t_get global_forwarding accept_icmp 1)
@@ -631,16 +633,23 @@ nft_generate() {
 	setup_flow_offload
 }
 
+nft_present() {
+	nft list tables | grep -Fxq "table $NFTABLE_NAME"
+}
+
 nft_batch() {
 	# Keep delete and recreate in one transaction; never flush the live table first.
-	if nft list table $NFTABLE_NAME >/dev/null 2>&1; then
+	if nft_present; then
 		printf 'delete table %s\n' "$NFTABLE_NAME"
 	fi
 	cat "$1"
 }
 
 nft_prepare() {
-	nft_generate > "$1/rules.nft" || return 1
+	nft_generate > "$1/rules.nft"
+}
+
+nft_check() {
 	nft_batch "$1/rules.nft" > "$1/batch.nft" || return 1
 	if ! nft -c -f "$1/batch.nft" 2> "$1/nft.error"; then
 		echolog 转发 "规则校验失败：$(cat "$1/nft.error")"
@@ -649,7 +658,10 @@ nft_prepare() {
 }
 
 nft_commit() {
-	# fw4 may have removed the table since --check. Re-evaluate existence here.
+	if cmp -s "$1/rules.nft" "$STATE_PATH/rules.nft" && nft_present; then
+		return 0
+	fi
+	# fw4 may have removed the table. Build the atomic replacement from live state.
 	nft_batch "$1/rules.nft" > "$1/batch.nft" || return 1
 	if ! nft -f "$1/batch.nft" 2> "$1/nft.error"; then
 		echolog 转发 "规则提交失败，保留原规则：$(cat "$1/nft.error")"
@@ -714,7 +726,7 @@ nft_routes() {
 
 nft_stop() {
 	local failed=0
-	if nft list table $NFTABLE_NAME >/dev/null 2>&1; then
+	if nft_present; then
 		nft delete table $NFTABLE_NAME || failed=1
 	fi
 	local family

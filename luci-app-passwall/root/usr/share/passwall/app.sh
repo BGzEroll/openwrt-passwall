@@ -3,13 +3,11 @@
 # Copyright (C) 2021-2023 xiaorouji
 
 . $IPKG_INSTROOT/lib/functions.sh
-. $IPKG_INSTROOT/lib/functions/service.sh
 
 CONFIG=passwall
 STATE_PATH=/var/run/passwall
 TMP_PATH=${PASSWALL_TMP_PATH:-/tmp/etc/$CONFIG}
-PROCESS_DIR=${PASSWALL_PROCESS_DIR:-$STATE_PATH/processes}
-TMP_ROUTE_PATH=$TMP_PATH/route
+PROCESS_DIR=$STATE_PATH/processes
 TMP_ACL_PATH=$TMP_PATH/acl
 TMP_IFACE_PATH=$TMP_PATH/iface
 DNSMASQ_PATH=/etc/dnsmasq.d
@@ -20,7 +18,6 @@ RULES_PATH=/usr/share/${CONFIG}/rules
 DNS_PORT=15353
 TUN_DNS="127.0.0.1#${DNS_PORT}"
 LOCAL_DNS=119.29.29.29,223.5.5.5
-DEFAULT_DNS=
 IPT_APPEND_DNS=
 ENABLED_DEFAULT_ACL=0
 resolve_dns=0
@@ -114,37 +111,24 @@ chinadns_local_servers() {
 	esac
 }
 
-check_port_exists() {
-	port=$1
-	protocol=$2
-	[ -n "$protocol" ] || protocol="tcp,udp"
-	result=
-	if [ "$protocol" = "tcp" ]; then
-		result=$(netstat -tln | grep -c ":$port ")
-	elif [ "$protocol" = "udp" ]; then
-		result=$(netstat -uln | grep -c ":$port ")
-	elif [ "$protocol" = "tcp,udp" ]; then
-		result=$(netstat -tuln | grep -c ":$port ")
-	fi
-	echo "${result}"
-}
-
 get_new_port() {
-	port=$1
-	[ "$port" == "auto" ] && port=2082
-	protocol=$(echo $2 | tr 'A-Z' 'a-z')
-	result=$(check_port_exists $port $protocol)
-	if [ "$result" != 0 ]; then
-		temp=
-		if [ "$port" -lt 65535 ]; then
-			temp=$(expr $port + 1)
-		elif [ "$port" -gt 1 ]; then
-			temp=$(expr $port - 1)
-		fi
-		get_new_port $temp $protocol
-	else
-		echo $port
-	fi
+	local port="$1" flags
+	[ "$port" != auto ] || port=2082
+	case "$port" in ''|*[!0-9]*) return 1 ;; esac
+	case "${2:-tcp,udp}" in
+		tcp|TCP) flags=-tln ;;
+		udp|UDP) flags=-uln ;;
+		tcp,udp) flags=-tuln ;;
+		*) return 1 ;;
+	esac
+	netstat "$flags" | awk -v port="$port" '
+		$4 ~ /:[0-9]+$/ { addr = $4; sub(/^.*:/, "", addr); used[addr] = 1 }
+		END {
+			if (port < 1) exit 1
+			while (port <= 65535 && used[port]) port++
+			if (port > 65535) exit 1
+			print port
+		}'
 }
 
 binary_path() {
@@ -167,19 +151,13 @@ ln_run() {
 	shift 3
 	if [ -z "$binary" ] || [ ! -x "$binary" ]; then
 		echolog 服务 "找不到可执行程序：$name"
-		APP_LAUNCH_FAILED=1
-		touch "$PROCESS_DIR/error"
 		return 1
 	fi
 	if [ -n "${PASSWALL_TEST_DIR:-}" ]; then
 		"$binary" "$@" 9>&- >>"$output" 2>&1 &
 		echo $! >> "$PASSWALL_TEST_DIR/pids"
 	else
-		lua "$APP_PATH/process.lua" plan "$PROCESS_DIR" "$output" "$binary" "$name" "$@" || {
-			APP_LAUNCH_FAILED=1
-			touch "$PROCESS_DIR/error"
-			return 1
-		}
+		lua "$APP_PATH/process.lua" plan "$PROCESS_DIR" "$output" "$binary" "$@"
 	fi
 }
 
@@ -195,11 +173,7 @@ run_xray() {
 	 -dns_listen_port "$dns_listen_port" -dns_client_ip "$dns_client_ip" -dns_cache "$dns_cache" \
 	 -dns_socks_address "$dns_socks_address" -dns_socks_port "$dns_socks_port" \
 	 -remote_dns_tcp_server "$remote_dns_tcp_server" -remote_dns_doh "$remote_dns_doh" -loglevel "$loglevel"
-	lua "$UTIL_XRAY" gen_config "$@" > "$config_file" || {
-	 APP_LAUNCH_FAILED=1
-	 touch "$PROCESS_DIR/error"
-	 return 1
-	}
+	lua "$UTIL_XRAY" gen_config "$@" > "$config_file" || return 1
 	ln_run /usr/bin/xray xray "$log_file" run -c "$config_file"
 }
 
@@ -353,9 +327,11 @@ start_redir() {
 		local config_file="${proto}.json"
 		local log_file="${proto}.log"
 		eval current_port=\$${proto}_REDIR_PORT
-		local port=$(echo $(get_new_port $current_port $proto))
+		local port protocol="$proto"
+		[ "$proto:$TCP_UDP" != TCP:1 ] || protocol=tcp,udp
+		port=$(get_new_port "$current_port" "$protocol") || return 1
 		eval ${proto}_REDIR_PORT=$port
-		run_redir node=$node proto=${proto} bind=0.0.0.0 local_port=$port config_file=$config_file log_file=$log_file || { APP_LAUNCH_FAILED=1; return 1; }
+		run_redir node=$node proto=${proto} bind=0.0.0.0 local_port=$port config_file=$config_file log_file=$log_file || return 1
 		echo $node > $TMP_ACL_PATH/default/${proto}.id
 	else
 		[ "${proto}" = "UDP" ] && [ "$TCP_UDP" = "1" ] && return
@@ -412,7 +388,7 @@ start_dns() {
 			DIRECT_DNS=$(dns_endpoints "$(config_t_get global direct_dns_tcp 223.5.5.5)") || return 1
 			china_ng_local_dns="tcp://${DIRECT_DNS}"
 			IPT_APPEND_DNS="${LOCAL_DNS},${DIRECT_DNS}"
-			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(first_dns "$DIRECT_DNS")" -v
+			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(first_dns "$DIRECT_DNS")" -v || return 1
 			debuglog DNS "dns2tcp(${LOCAL_DNS}) -> tcp://$(first_dns "$DIRECT_DNS")"
 		;;
 		auto)
@@ -455,7 +431,7 @@ start_dns() {
 			local china_ng_listen_port=${dns_listen_port}
 			local china_ng_trust_dns="tcp://$(first_dns "$REMOTE_DNS")"
 		else
-			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(first_dns "$REMOTE_DNS")" -v
+			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(first_dns "$REMOTE_DNS")" -v || return 1
 			debuglog DNS "dns2tcp(${TUN_DNS}) -> tcp://$(first_dns "$REMOTE_DNS")"
 		fi
 	;;
@@ -476,7 +452,7 @@ start_dns() {
 			_gfwlist=${USE_GFW_LIST} \
 			_chnroute=${CHN_LIST} \
 			_default_mode=${TCP_PROXY_MODE} \
-			_default_tag=$(config_t_get global chinadns_ng_default_tag smart)
+			_default_tag=$(config_t_get global chinadns_ng_default_tag smart) || return 1
 
 		debuglog DNS "ChinaDNS-NG(${china_ng_listen})：直连DNS：${china_ng_local_dns}，可信DNS：${china_ng_trust_dns}"
 	}
@@ -489,22 +465,25 @@ app_dns_generate() {
 	# This is a configuration choice, not a value restored from runtime state.
 	default_dns=$(config_t_get global use_default_dns direct)
 	[ "${CHINADNS_DNS:-0}" = 0 ] || default_dns=chinadns_ng
-	mkdir -p "$work/files"
+	mkdir -p "$work/publish" || return 1
 	lua "$APP_PATH/helper_dnsmasq_add.lua" \
-		-TMP_DNSMASQ_PATH "$work/files" -DNSMASQ_CONF_FILE "$work/entry.conf" \
+		-TMP_DNSMASQ_PATH "$work/publish" -DNSMASQ_CONF_FILE "$work/entry.conf" \
 		-LOCAL_DNS "${LOCAL_DNS:-nil}" \
 		-TUN_DNS "${TUN_DNS:-nil}" \
 		-USE_DEFAULT_DNS "$default_dns" -CHINADNS_DNS "${CHINADNS_DNS:-0}" \
 		-USE_DIRECT_LIST "$USE_DIRECT_LIST" -USE_PROXY_LIST "$USE_PROXY_LIST" \
 		-USE_BLOCK_LIST "$USE_BLOCK_LIST" -USE_GFW_LIST "$USE_GFW_LIST" -CHN_LIST "$CHN_LIST" \
 		-TCP_NODE "$TCP_NODE" -DEFAULT_PROXY_MODE "$TCP_PROXY_MODE" || return 1
+	sed "s|^conf-dir=.*|conf-dir=$TMP_DNSMASQ_PATH|" "$work/entry.conf" > "$work/publish.conf" || return 1
+	sha256sum /etc/hosts > "$work/hosts.sha256" || return 1
+}
+
+app_dns_check() {
+	local work="$1"
 	dnsmasq --test --conf-file="$work/entry.conf" > "$work/dns-check.log" 2>&1 || {
 		echolog DNS "DNS 候选配置检查失败：$(cat "$work/dns-check.log")"
 		return 1
 	}
-	mv "$work/files" "$work/publish" || return 1
-	sed "s|^conf-dir=.*|conf-dir=$TMP_DNSMASQ_PATH|" "$work/entry.conf" > "$work/publish.conf" || return 1
-	sha256sum /etc/hosts > "$work/hosts.sha256" || return 1
 }
 
 app_dns_signature() {
@@ -557,6 +536,7 @@ app_dns_apply() {
 	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] && cmp -s "$work/hosts.sha256" "$STATE_PATH/hosts.sha256" && cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
 		return 0
 	fi
+	[ "${2:-}" = prepared ] || app_dns_check "$work" || return 1
 	mkdir -p /tmp/dnsmasq.d || return 1
 	if [ -e "$entry" ]; then
 		cp -a "$entry" "$work/old.conf" || return 1
@@ -575,81 +555,29 @@ app_dns_apply() {
 	debuglog DNS "DNS 配置已更新"
 }
 
-add_ip2route() {
-	local ip=$(get_host_ip "ipv4" $1)
-	[ -z "$ip" ] && {
-		echolog 路由 "无法解析[${1}]，路由表添加失败"
-		return 1
-	}
-	local remarks="${1}"
-	[ "$remarks" != "$ip" ] && remarks="${1}(${ip})"
-
-	. /lib/functions/network.sh
-	local gateway device
-	network_get_gateway gateway "$2"
-	network_get_device device "$2"
-	[ -z "${device}" ] && device="$2"
-
-	if [ -n "${gateway}" ]; then
-		route add -host ${ip} gw ${gateway} dev ${device} >/dev/null 2>&1
-		echo "$ip" >> $TMP_ROUTE_PATH/${device}
-		debuglog 路由 "[${remarks}]添加到接口[${device}]路由表成功"
-	else
-		echolog 路由 "[${remarks}]添加到接口[${device}]路由失败：找不到接口 ${device} 的网关"
-	fi
-}
-
-delete_ip2route() {
-	[ -d "${TMP_ROUTE_PATH}" ] && {
-		for interface in $(ls ${TMP_ROUTE_PATH}); do
-			for ip in $(cat ${TMP_ROUTE_PATH}/${interface}); do
-				route del -host ${ip} dev ${interface} >/dev/null 2>&1
-			done
-		done
-	}
-	return 0
-}
-
 app_core_signature() {
 	local config
 	config=$(lua "$APP_PATH/core_config.lua") || return 1
 	printf '%s\n' "$config" | sha256sum | cut -d ' ' -f 1
 }
 
-app_check() {
-	app_core_signature >/dev/null || return 1
-	APP_LAUNCH_FAILED=0
-	mkdir -p "$TMP_ACL_PATH/default" "$PROCESS_DIR"
+# Prepare one candidate while the current service keeps running. procd uses
+# these same files once the candidate is activated.
+app_prepare_start() {
+	local TMP_PATH="$1" TMP_ACL_PATH="$1/acl" TMP_IFACE_PATH="$1/iface" PROCESS_DIR="$1/processes"
+	local PASSWALL_TMP_PATH="$TMP_PATH"
+	export PASSWALL_TMP_PATH
+	mkdir -p "$TMP_ACL_PATH/default" "$TMP_IFACE_PATH" "$PROCESS_DIR" "$TMP_PATH/apply" || return 1
+	app_core_signature > "$TMP_PATH/core.sha256" || return 1
 	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
-		start_redir TCP || APP_LAUNCH_FAILED=1
-		start_redir UDP || APP_LAUNCH_FAILED=1
+		start_redir TCP && start_redir UDP || return 1
 	fi
-	start_dns || APP_LAUNCH_FAILED=1
-	[ "$APP_LAUNCH_FAILED" = 0 ] && [ ! -e "$PROCESS_DIR/error" ] &&
-		lua "$APP_PATH/process.lua" validate "$PROCESS_DIR" || return 1
-	nft_read_config && nft_prepare "$TMP_PATH" && app_dns_generate "$TMP_PATH"
-}
-
-app_restart() {
-	[ "$ENABLED" = 1 ] || { app_stop; return $?; }
-	local work
-	work=$(mktemp -d "$STATE_PATH/check.XXXXXX") || return 1
-	rm -f "$STATE_PATH/last_error"
-	if ! PASSWALL_TMP_PATH="$work/runtime" PASSWALL_PROCESS_DIR="$work/processes" "$APP_PATH/app.sh" check > "$work/check.log" 2>&1; then
-		if [ ! -s "$STATE_PATH/last_error" ] && [ -s "$work/check.log" ]; then
-			tail -n 1 "$work/check.log" > "$STATE_PATH/last_error"
-			echolog 核心 "$(cat "$STATE_PATH/last_error")"
-		fi
-		rm -rf "$work"
-		if [ -f "$STATE_PATH/running" ]; then
-			echolog 服务 "配置未应用；保留原服务"
-		else
-			echolog 服务 "配置校验失败；未启动服务"
-		fi
-		return 1
-	fi
-	rm -rf "$work"
-	app_stop && app_start
+	start_dns &&
+		lua "$APP_PATH/process.lua" validate "$PROCESS_DIR" &&
+		nft_read_config && nft_network_snapshot > "$TMP_PATH/apply/network" &&
+		nft_prepare "$TMP_PATH/apply" &&
+		app_dns_generate "$TMP_PATH/apply" && app_dns_check "$TMP_PATH/apply" || return 1
+	[ ! -f "$STATE_PATH/running" ] || nft_check "$TMP_PATH/apply"
 }
 
 app_runtime_save() {
@@ -658,14 +586,14 @@ app_runtime_save() {
 	cp "$CONFIG_INPUT/passwall" "$STATE_PATH/runtime/config/passwall.next" &&
 		mv "$STATE_PATH/runtime/config/passwall.next" "$STATE_PATH/runtime/config/passwall" || return 1
 	rm -f "$STATE_PATH/runtime/USE_DEFAULT_DNS" || return 1
-	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
+	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
 		eval 'printf "%s\n" "${'"$key"':-}"' > "$STATE_PATH/runtime/$key"
 	done
 }
 
 app_runtime_load() {
 	local key value
-	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS DEFAULT_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
+	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
 		[ -f "$STATE_PATH/runtime/$key" ] || continue
 		value=$(cat "$STATE_PATH/runtime/$key")
 		export "$key=$value"
@@ -742,8 +670,20 @@ app_system_restore() {
 	[ "$APP_DNS_REDIRECT_CHANGED" = 0 ] || app_dns_restart "$1"
 }
 
+app_apply_dns() {
+	local china_dns=
+	app_dns_apply "$1" "${2:-}" || return 1
+	# Cold start already loaded the DNS snapshot. dnsmasq mode has no
+	# separate ChinaDNS process to replace.
+	[ "${2:-}" != prepared ] && [ "${CHINADNS_DNS:-0}" != 0 ] || return 0
+	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
+		china_dns=$(chinadns_local_servers "$LOCAL_DNS")
+	fi
+	lua "$APP_PATH/process.lua" reload_files "$PROCESS_DIR" "$china_dns"
+}
+
 app_apply() {
-	local work="$1" routes_changed=0 china_dns=
+	local work="$1" routes_changed=0
 	if ! cmp -s "$work/network" "$STATE_PATH/network"; then
 		routes_changed=1
 		nft_routes_save "$work"
@@ -759,10 +699,7 @@ app_apply() {
 		[ "$routes_changed" = 0 ] || nft_routes_restore "$work"
 		return 1
 	fi
-	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
-		china_dns=$(chinadns_local_servers "$LOCAL_DNS")
-	fi
-	if ! app_dns_apply "$work" || ! lua "$APP_PATH/process.lua" reload_files "$PROCESS_DIR" "$china_dns"; then
+	if ! app_apply_dns "$work" "${2:-}"; then
 		[ "${APP_DNS_APPLIED:-0}" != 1 ] || app_dns_restore "$work"
 		if [ -s "$STATE_PATH/rules.nft" ]; then nft_restore; else nft_stop; fi
 		app_system_restore "$work"
@@ -775,7 +712,7 @@ app_apply() {
 }
 
 app_reload() {
-	local reason="${1:-config}" work old_local_dns="$LOCAL_DNS" old_default_dns="$DEFAULT_DNS"
+	local reason="${1:-config}" work new_local_dns="$LOCAL_DNS"
 	if [ "$reason" = config ]; then
 		rm -f "$STATE_PATH/last_error"
 		[ "$ENABLED" = 1 ] || { app_stop; return $?; }
@@ -786,7 +723,7 @@ app_reload() {
 		if [ "$(app_core_signature)" != "$(cat "$STATE_PATH/core.sha256")" ]; then
 			local saved_error status
 			[ "$reason" != rules ] || saved_error=$(cat "$STATE_PATH/last_error" 2>/dev/null)
-			app_restart
+			app_start restart
 			status=$?
 			[ -z "$saved_error" ] || printf '%s\n' "$saved_error" > "$STATE_PATH/last_error"
 			return "$status"
@@ -794,14 +731,14 @@ app_reload() {
 	fi
 	app_runtime_load
 	if [ "$(config_t_get global direct_dns_mode auto)" = auto ]; then
-		LOCAL_DNS=$(dns_endpoints "$old_local_dns") || return 1
-		DEFAULT_DNS="$old_default_dns"; IPT_APPEND_DNS="$LOCAL_DNS"
+		LOCAL_DNS=$(dns_endpoints "$new_local_dns") || return 1
+		IPT_APPEND_DNS="$LOCAL_DNS"
 	fi
 	nft_read_config || return 1
 	work=$(mktemp -d "$STATE_PATH/reload.XXXXXX") || return 1
 	nft_network_snapshot > "$work/network"
 	if { [ "$reason" = network ] || [ "$reason" = firewall ]; } &&
-		cmp -s "$work/network" "$STATE_PATH/network" && app_system_matches && nft list table inet passwall >/dev/null 2>&1; then
+		cmp -s "$work/network" "$STATE_PATH/network" && app_system_matches && nft_present; then
 		rm -rf "$work"
 		return 0
 	fi
@@ -855,67 +792,60 @@ app_update_rules() {
 	debuglog 规则 "规则文件发布完成"
 }
 
+app_remove_instance() {
+	local active
+	active=$(readlink "$TMP_PATH")
+	case "$active" in "$STATE_PATH"/service.??????) rm -rf "$active" ;; esac
+	rm -rf "$TMP_PATH" "$PROCESS_DIR"
+}
+
 app_start() {
 	[ "$ENABLED" = 1 ] || { app_stop; return $?; }
-	[ ! -f "$STATE_PATH/running" ] || { app_reload config; return $?; }
+	if [ "${1:-}" != restart ] && [ -f "$STATE_PATH/running" ]; then
+		app_reload config
+		return $?
+	fi
 	ulimit -n 65535
-	if ! command -v fw4 >/dev/null || ! command -v nft >/dev/null ||
-		! dnsmasq --version | grep -q 'Compile time options:.* nftset'; then
-		echolog 服务 "需要 firewall4、nftables 和支持 nftset 的 dnsmasq，未启动"
-		return 1
-	fi
-	mkdir -p "$TMP_PATH" "$PROCESS_DIR" "$TMP_ROUTE_PATH" "$TMP_ACL_PATH" "$TMP_IFACE_PATH"
-	rm -rf "$PROCESS_DIR"
-	mkdir -p "$PROCESS_DIR"
-	APP_LAUNCH_FAILED=0
 	local work
-	work=$(mktemp -d "$STATE_PATH/start.XXXXXX") || return 1
-	mkdir -p "$TMP_ACL_PATH/default"
-	if [ "$ENABLED_DEFAULT_ACL" = 1 ]; then
-		start_redir TCP || APP_LAUNCH_FAILED=1
-		start_redir UDP || APP_LAUNCH_FAILED=1
-	fi
-	start_dns || APP_LAUNCH_FAILED=1
-	if [ "$APP_LAUNCH_FAILED" = 1 ] || [ -e "$PROCESS_DIR/error" ]; then
-		app_processes_stop
+	work=$(mktemp -d "$STATE_PATH/service.XXXXXX") || return 1
+	rm -f "$STATE_PATH/last_error"
+	if ! app_prepare_start "$work" > "$work/check.log" 2>&1; then
+		if [ ! -s "$STATE_PATH/last_error" ] && [ -s "$work/check.log" ]; then
+			tail -n 1 "$work/check.log" > "$STATE_PATH/last_error"
+			echolog 核心 "$(cat "$STATE_PATH/last_error")"
+		fi
 		rm -rf "$work"
 		return 1
 	fi
-	if ! lua "$APP_PATH/process.lua" validate "$PROCESS_DIR" ||
-		! lua "$APP_PATH/process.lua" start "$PROCESS_DIR" ||
-		! lua "$APP_PATH/process.lua" ready "$PROCESS_DIR"; then
-		app_processes_stop
-		rm -rf "$work"
-		return 1
+	rm -f "$work/check.log"
+	if [ "${1:-}" = restart ]; then
+		if ! app_processes_stop; then
+			rm -rf "$work"
+			return 1
+		fi
+		rm -f "$STATE_PATH/running"
 	fi
-	if ! nft_read_config || ! nft_prepare "$work" || ! app_dns_generate "$work"; then
-		app_processes_stop
-		rm -rf "$work"
-		return 1
-	fi
-	nft_network_snapshot > "$work/network"
-	nft_bridge_start
-	if ! app_apply "$work"; then
-		nft_bridge_stop
-		app_processes_stop
-		rm -rf "$work"
-		return 1
-	fi
-	if ! app_runtime_save || ! app_core_signature > "$STATE_PATH/core.sha256"; then
+	# Keep the generated paths intact. The stable link is used by LuCI and
+	# the rule updater to find the currently active service files.
+	app_remove_instance
+	if ! ln -s "$work" "$TMP_PATH" || ! mv "$work/processes" "$PROCESS_DIR"; then
 		app_stop
 		rm -rf "$work"
+		return 1
+	fi
+	nft_bridge_start
+	if ! lua "$APP_PATH/process.lua" start "$PROCESS_DIR" ||
+		! app_apply "$work/apply" prepared ||
+		! app_runtime_save || ! mv "$work/core.sha256" "$STATE_PATH/core.sha256" ||
+		! app_crontab 1; then
+		app_record_error
+		app_stop
 		return 1
 	fi
 	nft_include
-	if ! app_crontab 1; then
-		app_stop
-		rm -rf "$work"
-		return 1
-	fi
-	rm -f "$STATE_PATH/last_error"
 	touch "$STATE_PATH/running"
-	rm -rf "$work"
-	echolog 服务 "启动完成：$( [ "$(config_t_get global_forwarding iproute_shunt 0)" = 1 ] && echo PBR || echo TPROXY )"
+	rm -rf "$work/apply"
+	echolog 服务 "启动完成：$( [ "$iproute_shunt" = 1 ] && echo PBR || echo TPROXY )"
 }
 
 app_stop() {
@@ -924,7 +854,6 @@ app_stop() {
 	nft_stop || failed=1
 	nft_bridge_stop || failed=1
 	if [ -n "$FWI" ]; then printf '#!/bin/sh\n' > "$FWI" || failed=1; fi
-	delete_ip2route || failed=1
 	app_processes_stop || failed=1
 	app_crontab 0 || failed=1
 	if [ -e /tmp/dnsmasq.d/dnsmasq-passwall.conf ]; then
@@ -937,7 +866,8 @@ app_stop() {
 		/etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1 || failed=1
 	fi
 	if [ "$failed" = 0 ]; then
-		rm -rf "$TMP_PATH" "$STATE_PATH/runtime" "$PROCESS_DIR"
+		app_remove_instance
+		rm -rf "$STATE_PATH/runtime"
 		rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/hosts.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*
 		echolog 服务 "已停止"
 	else
@@ -946,11 +876,22 @@ app_stop() {
 	return "$failed"
 }
 
+app_record_error() {
+	[ ! -s "$STATE_PATH/last_error" ] || return 0
+	tail -n 1 "$LOG_FILE" 2>/dev/null | sed 's/^[^]]*] //' > "$STATE_PATH/last_error"
+	[ -s "$STATE_PATH/last_error" ] || printf '%s\n' '应用失败，请查看运行日志' > "$STATE_PATH/last_error"
+}
+
+if [ "$1" = get_new_port ]; then
+	get_new_port "$2" "$3"
+	exit $?
+fi
+
 mkdir -p "$STATE_PATH"
 CONFIG_INPUT=$(mktemp -d "$STATE_PATH/config.XXXXXX") || exit 1
 trap 'rm -rf "$CONFIG_INPUT"' EXIT
 case "$1:$2" in
- check:*|run_socks:*)
+ run_socks:*)
   [ -z "${PASSWALL_CONFIG_DIR:-}" ] || cp "$PASSWALL_CONFIG_DIR/passwall" "$CONFIG_INPUT/passwall" || exit 1
  ;;
  reload:network|reload:firewall|reload:rules|update_rules:*)
@@ -1015,10 +956,10 @@ LOCAL_DNS="${DEFAULT_DNS:-119.29.29.29,223.5.5.5}"
 IPT_APPEND_DNS=${LOCAL_DNS}
 
 
-export PASSWALL_TMP_PATH="$TMP_PATH" PASSWALL_PROCESS_DIR="$PROCESS_DIR"
+export PASSWALL_TMP_PATH="$TMP_PATH"
 export V2RAY_LOCATION_ASSET=/usr/share/v2ray/
 export XRAY_LOCATION_ASSET=$V2RAY_LOCATION_ASSET
-mkdir -p "$STATE_PATH" /tmp/etc $TMP_PATH $PROCESS_DIR $TMP_ROUTE_PATH $TMP_ACL_PATH $TMP_IFACE_PATH
+mkdir -p /tmp/etc || exit 1
 
 # nftables.sh is a library, never a second command dispatcher.
 . "$APP_PATH/nftables.sh"
@@ -1026,26 +967,12 @@ mkdir -p "$STATE_PATH" /tmp/etc $TMP_PATH $PROCESS_DIR $TMP_ROUTE_PATH $TMP_ACL_
 arg1=$1
 shift
 case $arg1 in
-add_ip2route)
-	add_ip2route $@
-	;;
-get_new_port)
-	get_new_port $@
-	;;
 run_socks)
+	mkdir -p "$TMP_IFACE_PATH" || exit 1
 	run_socks "$@"
 	;;
-run_redir)
-	run_redir "$@"
-	;;
-echolog)
-	echolog $@
-	;;
-check)
-	app_check
-	;;
 restart)
-	app_restart
+	app_start restart
 	;;
 stop)
 	app_stop
@@ -1064,10 +991,7 @@ esac
 result=$?
 case "$arg1:$1" in
 	start:*|restart:*|reload:config)
-		if [ "$result" != 0 ] && [ ! -s "$STATE_PATH/last_error" ]; then
-			tail -n 1 "$LOG_FILE" | sed 's/^[^]]*] //' > "$STATE_PATH/last_error"
-			[ -s "$STATE_PATH/last_error" ] || printf '%s\n' '应用失败，请查看运行日志' > "$STATE_PATH/last_error"
-		fi
+		[ "$result" = 0 ] || app_record_error
 	;;
 esac
 exit "$result"

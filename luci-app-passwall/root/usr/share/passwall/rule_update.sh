@@ -27,11 +27,7 @@ else
 fi
 export PASSWALL_RULE_UPDATE_LOCKED=1
 run_worker() {
-	if [ -n "$1" ]; then
-		lua "$APP/rule_update.lua" log "$1" 2>/var/run/passwall/rule-update.error
-	else
-		lua "$APP/rule_update.lua" log nil cron 2>/var/run/passwall/rule-update.error
-	fi
+	lua "$APP/rule_update.lua" "$@" 2>/var/run/passwall/rule-update.error
 
 	local result=$?
 
@@ -55,6 +51,9 @@ if [ "$1" = start ]; then
 	# Both the worker and curl retain fd 8 until the task ends.
 	run_worker "$2" </dev/null >/dev/null 2>&1 &
 	lua "$APP/rule_update.lua" status
-else
+
+elif [ -n "$2" ]; then
 	run_worker "$2"
+else
+	run_worker
 fi
