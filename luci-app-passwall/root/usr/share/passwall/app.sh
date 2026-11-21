@@ -104,6 +104,14 @@ first_dns() {
  printf '%s\n' "${1%%,*}"
 }
 
+system_dns_upstreams() {
+	awk '{ for (i = 1; i <= NF; i++) {
+		if ($i ~ /\//) continue
+		printf "%s%s", n++ ? "," : "", $i
+		if (n == 2) exit
+	} }'
+}
+
 chinadns_local_servers() {
 	case "$1" in
 		127.0.0.1\#*) first_dns "$1" ;;
@@ -129,12 +137,6 @@ get_new_port() {
 			if (port > 65535) exit 1
 			print port
 		}'
-}
-
-binary_path() {
-	local path="/usr/bin/$1"
-	[ "$1" != dnsmasq ] || path=/usr/sbin/dnsmasq
-	[ -x "$path" ] && printf '%s\n' "$path"
 }
 
 set_vars() {
@@ -255,7 +257,7 @@ run_chinadns_ng() {
 	([ -z "${_default_tag}" ] || [ "${_default_tag}" = "smart" ] || [ "${_default_tag}" = "none_noip" ]) && _default_tag="none"
 	echo "default-tag ${_default_tag}" >> ${_CONF_FILE}
 
-	ln_run "$(binary_path chinadns-ng)" chinadns-ng "${_LOG_FILE}" -C ${_CONF_FILE}
+	ln_run /usr/bin/chinadns-ng chinadns-ng "${_LOG_FILE}" -C ${_CONF_FILE}
 }
 
 run_socks() {
@@ -388,7 +390,7 @@ start_dns() {
 			DIRECT_DNS=$(dns_endpoints "$(config_t_get global direct_dns_tcp 223.5.5.5)") || return 1
 			china_ng_local_dns="tcp://${DIRECT_DNS}"
 			IPT_APPEND_DNS="${LOCAL_DNS},${DIRECT_DNS}"
-			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(first_dns "$DIRECT_DNS")" -v || return 1
+			ln_run /usr/bin/dns2tcp dns2tcp "/dev/null" -L "${LOCAL_DNS}" -R "$(first_dns "$DIRECT_DNS")" -v || return 1
 			debuglog DNS "dns2tcp(${LOCAL_DNS}) -> tcp://$(first_dns "$DIRECT_DNS")"
 		;;
 		auto)
@@ -418,7 +420,7 @@ start_dns() {
 		}
 	;;
 	udp)
-		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ]; then
+		if [ "$DNS_SHUNT" = "chinadns-ng" ]; then
 			local china_ng_listen_port=${dns_listen_port}
 			local china_ng_trust_dns="udp://$(first_dns "$REMOTE_DNS")"
 		else
@@ -427,17 +429,17 @@ start_dns() {
 		fi
 	;;
 	*)
-		if [ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ]; then
+		if [ "$DNS_SHUNT" = "chinadns-ng" ]; then
 			local china_ng_listen_port=${dns_listen_port}
 			local china_ng_trust_dns="tcp://$(first_dns "$REMOTE_DNS")"
 		else
-			ln_run "$(binary_path dns2tcp)" dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(first_dns "$REMOTE_DNS")" -v || return 1
+			ln_run /usr/bin/dns2tcp dns2tcp "/dev/null" -L "${TUN_DNS}" -R "$(first_dns "$REMOTE_DNS")" -v || return 1
 			debuglog DNS "dns2tcp(${TUN_DNS}) -> tcp://$(first_dns "$REMOTE_DNS")"
 		fi
 	;;
 	esac
 
-	[ "$DNS_SHUNT" = "chinadns-ng" ] && [ -n "$(binary_path chinadns-ng)" ] && {
+	[ "$DNS_SHUNT" = "chinadns-ng" ] && {
 		[ -z "${china_ng_listen_port}" ] && local china_ng_listen_port=$(expr $dns_listen_port + 1)
 		local china_ng_listen="127.0.0.1#${china_ng_listen_port}"
 		[ -z "${china_ng_trust_dns}" ] && local china_ng_trust_dns=${TUN_DNS}
@@ -887,6 +889,14 @@ if [ "$1" = get_new_port ]; then
 	exit $?
 fi
 
+# Network notifications are already serialized by the init script. A
+# stopped service needs no configuration loading or probing.
+case "$1:$2" in
+ reload:network|reload:firewall|reload:rules)
+  [ -f "$STATE_PATH/running" ] || exit 0
+ ;;
+esac
+
 mkdir -p "$STATE_PATH"
 CONFIG_INPUT=$(mktemp -d "$STATE_PATH/config.XXXXXX") || exit 1
 trap 'rm -rf "$CONFIG_INPUT"' EXIT
@@ -921,7 +931,6 @@ TCP_UDP=0
 	[ "$TCP_NODE" != "nil" ] && [ "$(config_get_type $TCP_NODE nil)" != "nil" ] && ENABLED_DEFAULT_ACL=1
 	[ "$UDP_NODE" != "nil" ] && [ "$(config_get_type $UDP_NODE nil)" != "nil" ] && ENABLED_DEFAULT_ACL=1
 }
-PROXY_IPV6=1
 TCP_REDIR_PORTS=$(config_t_get global_forwarding tcp_redir_ports '1:65535')
 UDP_REDIR_PORTS=$(config_t_get global_forwarding udp_redir_ports '1:65535')
 TCP_NO_REDIR_PORTS=$(config_t_get global_forwarding tcp_no_redir_ports 'disable')
@@ -938,20 +947,21 @@ UDP_PROXY_MODE=$(config_t_get global udp_proxy_mode proxy)
 [ "${TCP_PROXY_MODE}" != "disable" ] && TCP_PROXY_MODE="proxy"
 [ "${UDP_PROXY_MODE}" != "disable" ] && UDP_PROXY_MODE="proxy"
 LOCALHOST_PROXY=$(config_t_get global localhost_proxy 1)
-DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
-[ -z "$(binary_path $DNS_SHUNT)" ] && DNS_SHUNT="dnsmasq"
+DNS_SHUNT=dnsmasq
+if [ "$(config_t_get global dns_shunt dnsmasq)" = chinadns-ng ] && [ -x /usr/bin/chinadns-ng ]; then
+	DNS_SHUNT=chinadns-ng
+fi
 DNS_MODE=$(config_t_get global dns_mode tcp)
 REMOTE_DNS=$(config_t_get global remote_dns 1.1.1.1:53)
 dns_listen_port=${DNS_PORT}
 
 RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
-[ -f "${RESOLVFILE}" ] && [ -s "${RESOLVFILE}" ] || RESOLVFILE=/tmp/resolv.conf.auto
 
-ISP_DNS=$(cat $RESOLVFILE 2>/dev/null | grep -E -o "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" | sort -u | grep -v 0.0.0.0 | grep -v 127.0.0.1)
-ISP_DNS6=$(cat $RESOLVFILE 2>/dev/null | grep -E "([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4}" | awk -F % '{print $1}' | awk -F " " '{print $2}'| sort -u | grep -v -Fx ::1 | grep -v -Fx ::)
+ISP_DNS=$(awk '$1 == "nameserver" && $2 !~ /:/ && $2 != "0.0.0.0" && $2 != "127.0.0.1" {print $2}' "$RESOLVFILE" 2>/dev/null | sort -u)
+ISP_DNS6=$(awk '$1 == "nameserver" && $2 ~ /:/ {sub(/%.*/, "", $2); if ($2 != "::" && $2 != "::1") print $2}' "$RESOLVFILE" 2>/dev/null | sort -u)
 
-DEFAULT_DNS=$(uci show dhcp.@dnsmasq[0] | grep "\.server=" | awk -F '=' '{print $2}' | sed "s/'//g" | tr ' ' '\n' | grep -v "\/" | head -2 | sed ':label;N;s/\n/,/;b label')
-[ -z "${DEFAULT_DNS}" ] && [ "$(echo $ISP_DNS | tr ' ' '\n' | wc -l)" -le 2 ] && DEFAULT_DNS=$(echo -n $ISP_DNS | tr ' ' '\n' | head -2 | tr '\n' ',')
+DEFAULT_DNS=$(uci -q get 'dhcp.@dnsmasq[0].server' | system_dns_upstreams)
+[ -n "$DEFAULT_DNS" ] || DEFAULT_DNS=$(printf '%s\n' "$ISP_DNS" | system_dns_upstreams)
 LOCAL_DNS="${DEFAULT_DNS:-119.29.29.29,223.5.5.5}"
 IPT_APPEND_DNS=${LOCAL_DNS}
 

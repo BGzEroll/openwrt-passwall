@@ -1,30 +1,9 @@
 #!/bin/sh
 
 case "$ACTION" in ifup|ifdown|ifupdate) ;; *) exit 0 ;; esac
-case "$INTERFACE" in
-	wan|wan6|lan) ;;
-	*)
-		# Follow the applied configuration if a newer saved configuration failed.
-		set --
-		config_dir=/var/run/passwall/runtime/config
-		[ ! -f "$config_dir/passwall" ] || set -- -c "$config_dir" -t "$config_dir"
-		[ "$(uci -q "$@" get 'passwall.@global_forwarding[0].iproute_shunt')" = 1 ] || exit 0
-		proxy_device=$(uci -q "$@" get 'passwall.@global_forwarding[0].iproute_shunt_interface')
-		[ -n "$proxy_device" ] || exit 0
-		if [ "${DEVICE:-}" != "$proxy_device" ]; then
-			. /usr/share/passwall/network.sh
-			matched=0
-			for interface in $(passwall_proxy_interfaces "$proxy_device" 2>/dev/null); do
-				[ "$interface" != "$INTERFACE" ] || matched=1
-			done
-			[ "$matched" = 1 ] || exit 0
-		fi
-		;;
-esac
+case "$INTERFACE" in wan|wan6) ;; *) exit 0 ;; esac
 
-# Queue behind the same service lock. Each waiter reads fresh state and skips
-# duplicate notifications. Check running inside reload so events received during
-# startup are not lost; stop still prevents queued work from reviving the service.
+# Allow WAN updates to propagate to the resolver and delegated LAN prefixes.
 (
 	sleep 1
 	/etc/init.d/passwall reload network

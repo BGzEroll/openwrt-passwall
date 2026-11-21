@@ -148,12 +148,6 @@ end
 				}
 
 				var value = type === "url" ? data && data.use_time : data && data.ping;
-				if (value == null || String(value).trim() === "") {
-					button.textContent = "超时";
-					button.style.color = "red";
-					return;
-				}
-
 				var milliseconds = parseFloat(value);
 				var success = isFinite(milliseconds) && milliseconds >= 0;
 				button.textContent = success ? Math.round(milliseconds) + " ms" : "超时";

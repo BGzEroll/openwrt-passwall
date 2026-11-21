@@ -19,7 +19,7 @@ run_case() {
 		export CONFIG=passwall
 		export ENABLED=1 ENABLED_DEFAULT_ACL=1 LOCALHOST_PROXY=1
 		export TCP_NODE=node1 UDP_NODE=node1 TCP_UDP=0
-		export TCP_REDIR_PORT=1041 UDP_REDIR_PORT=1051 PROXY_IPV6=1
+		export TCP_REDIR_PORT=1041 UDP_REDIR_PORT=1051
 		export TCP_REDIR_PORTS=1:65535 UDP_REDIR_PORTS=1:65535
 		export TCP_NO_REDIR_PORTS=disable UDP_NO_REDIR_PORTS=disable
 		export TCP_PROXY_DROP_PORTS=disable UDP_PROXY_DROP_PORTS=443
@@ -46,15 +46,16 @@ run_case() {
 			esac
 		}
 		network_flush_cache() { :; }
-		network_find_wan() { printf -v "$1" wan; }
-		network_find_wan6() { printf -v "$1" wan6; }
 		network_get_ipaddr() { printf -v "$1" 203.0.113.1; }
 		network_get_ipaddr6() { printf -v "$1" 2001:db8::1; }
-		network_get_subnets() { printf -v "$1" 192.168.1.1/24; }
-		network_get_subnets6() {
-			case "$2" in
-				lan) printf -v "$1" '%s' '2001:db8:1::1/64 fd00::1/64' ;;
-				proxy) printf -v "$1" '%s' '2001:db8:1::114/64 2001:db8:2::114/64 fd00:0:0:1::114/64' ;;
+		ip() {
+			case "$*" in
+				'-o address show dev br-lan scope global')
+					printf '%s\n' '1: br-lan inet 192.168.1.1/24' '1: br-lan inet6 2001:db8:1::1/64' '1: br-lan inet6 fd00::1/64'
+					;;
+				'-o address show dev eth9 scope global')
+					printf '%s\n' '2: eth9 inet6 2001:db8:1::114/64' '2: eth9 inet6 2001:db8:2::114/64' '2: eth9 inet6 fd00:0:0:1::114/64'
+					;;
 			esac
 		}
 		network_get_device() { printf -v "$1" br-lan; }
@@ -108,9 +109,8 @@ run_case() {
 
 		# Replace only the unavailable OpenWrt network helper, then exercise the
 		# function-library API that emits the complete candidate table.
-		source <(sed 's#^\. /usr/share/passwall/network.sh$#:#' "$SCRIPT")
+		source <(sed 's#^\. /lib/functions/network.sh$#:#' "$SCRIPT")
 		nft_offload_devices() { echo eth0,eth1; }
-		passwall_proxy_interfaces() { echo proxy; }
 		nft_read_config
 		nft_generate > "$TEST_RULES_FILE"
 	)

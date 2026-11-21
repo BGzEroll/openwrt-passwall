@@ -27,7 +27,7 @@ NFTSET_BLACKLIST6="passwall_blacklist6"
 NFTSET_WHITELIST6="passwall_whitelist6"
 NFTSET_BLOCKLIST6="passwall_blocklist6"
 
-. /usr/share/passwall/network.sh
+. /lib/functions/network.sh
 
 FWI=$(uci -q get firewall.passwall.path 2>/dev/null)
 
@@ -95,53 +95,27 @@ load_rule_set() {
 	gen_nftset "$1" "$2" 2d 0 $(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$RULES_PATH/$3")
 }
 
-get_wan_ip() {
-	local net_if net_addr
-	network_flush_cache
-	network_find_wan net_if
-	network_get_ipaddr net_addr "$net_if"
-	echo "$net_addr"
-}
-
-get_wan6_ip() {
-	local net_if net_addr
-	network_flush_cache
-	network_find_wan6 net_if
-	network_get_ipaddr6 net_addr "$net_if"
-	echo "$net_addr"
-}
-
-lan_networks() {
-	local logical_if="$1" subnets4 subnets6 device
-	[ -n "$logical_if" ] || return 0
-	network_get_subnets subnets4 "$logical_if"
-	network_get_subnets6 subnets6 "$logical_if"
-	# network_get_subnets* is preferred; the device fallback covers unusual
-	# netifd state while retaining all bridge/VLAN addresses.
-	if [ -z "$subnets4$subnets6" ]; then
-		network_get_device device "$logical_if"
-		[ -n "$device" ] || return 0
-		subnets4=$(ip -o -4 address show dev "$device" 2>/dev/null | awk '{print $4}')
-		subnets6=$(ip -o -6 address show dev "$device" scope global 2>/dev/null | awk '{print $4}')
-	fi
-	printf '%s\n' $subnets4 $subnets6
+device_subnets() {
+	[ -n "$1" ] || return 0
+	ip -o address show dev "$1" scope global 2>/dev/null | awk '{print $4}'
 }
 
 setup_lan_sets() {
-	local logical_if subnets
-	network_flush_cache
+	local subnets wan_ip wan6_ip
+	network_get_ipaddr wan_ip wan || wan_ip=""
+	network_get_ipaddr6 wan6_ip wan6 || wan6_ip=""
 	subnets=$(
-		lan_networks lan
-		for logical_if in $iproute_shunt_logical_interfaces; do
-			[ "$logical_if" = lan ] || lan_networks "$logical_if"
-		done
+		device_subnets "$lan_device"
+		if [ "$iproute_shunt" = 1 ] && [ "$iproute_shunt_interface" != "$lan_device" ]; then
+			device_subnets "$iproute_shunt_interface"
+		fi
 	)
 	# Auto-merge sees overlaps between interface prefixes and reserved ranges
 	# together when each set is populated by a single element command.
 	gen_nftset "$NFTSET_LANLIST" ipv4_addr 0 -1 $(gen_lanlist) \
-		$(printf '%s\n' "$subnets" | grep -vF :) $(get_wan_ip)
+		$(printf '%s\n' "$subnets" | grep -vF :) $wan_ip
 	gen_nftset "$NFTSET_LANLIST6" ipv6_addr 0 -1 $(gen_lanlist_6) \
-		$(printf '%s\n' "$subnets" | grep -F :) $(get_wan6_ip)
+		$(printf '%s\n' "$subnets" | grep -F :) $wan6_ip
 }
 
 setup_sets() {
@@ -451,12 +425,10 @@ setup_client_chains() {
 		"$TCP_PROXY_DROP_PORTS" "$UDP_PROXY_DROP_PORTS" "$TCP_REDIR_PORTS" "$UDP_REDIR_PORTS"
 	nft_emit "add rule $NFTABLE_NAME PSW_MANGLE counter goto PSW_DEFAULT_PORTS"
 	nft_emit "add rule $NFTABLE_NAME PSW_MANGLE_V6 counter goto PSW_DEFAULT_PORTS"
-	nft_emit "add rule $NFTABLE_NAME PSW_MANGLE counter return"
-	nft_emit "add rule $NFTABLE_NAME PSW_MANGLE_V6 counter return"
 
 	nft_emit "add rule $NFTABLE_NAME mangle_prerouting meta l4proto tcp counter jump PSW_DIVERT"
 	nft_emit "add rule $NFTABLE_NAME mangle_prerouting meta nfproto ipv4 meta l4proto { tcp, udp } counter jump PSW_MANGLE"
-	[ "$PROXY_IPV6" = "1" ] && nft_emit "add rule $NFTABLE_NAME mangle_prerouting meta nfproto ipv6 meta l4proto { tcp, udp } counter jump PSW_MANGLE_V6"
+	nft_emit "add rule $NFTABLE_NAME mangle_prerouting meta nfproto ipv6 meta l4proto { tcp, udp } counter jump PSW_MANGLE_V6"
 }
 
 setup_localhost() {
@@ -483,7 +455,7 @@ setup_localhost() {
 	done
 
 	nft_emit "add rule $NFTABLE_NAME mangle_output meta nfproto ipv4 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE"
-	[ "$PROXY_IPV6" = "1" ] && nft_emit "add rule $NFTABLE_NAME mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE"
+	nft_emit "add rule $NFTABLE_NAME mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } counter jump PSW_OUTPUT_MANGLE"
 }
 
 setup_dns() {
@@ -504,7 +476,7 @@ setup_ping() {
 		nft_emit "add rule $NFTABLE_NAME PSW_PING meta nfproto ipv4 meta mark $BYPASS_MARK counter return"
 		[ "$TCP_PROXY_MODE" = "proxy" ] && nft_emit "add rule $NFTABLE_NAME PSW_PING meta nfproto ipv4 counter redirect"
 	fi
-	if [ "$accept_icmpv6" = "1" ] && [ "$PROXY_IPV6" = "1" ] && protocol_available tcp; then
+	if [ "$accept_icmpv6" = "1" ] && protocol_available tcp; then
 		nft_emit "add rule $NFTABLE_NAME PSW_PING meta nfproto ipv6 jump PSW_POLICY_V6"
 		nft_emit "add rule $NFTABLE_NAME PSW_PING meta nfproto ipv6 meta mark $PROXY_MARK counter redirect"
 		nft_emit "add rule $NFTABLE_NAME PSW_PING meta nfproto ipv6 meta mark $BYPASS_MARK counter return"
@@ -516,30 +488,24 @@ setup_ping() {
 		nft_emit "add rule $NFTABLE_NAME dstnat ip protocol icmp icmp type echo-request counter jump PSW_PING"
 		nft_emit "add rule $NFTABLE_NAME nat_output ip protocol icmp icmp type echo-request counter jump PSW_PING"
 	}
-	[ "$accept_icmpv6" = "1" ] && [ "$PROXY_IPV6" = "1" ] && {
+	[ "$accept_icmpv6" = "1" ] && {
 		nft_emit "add rule $NFTABLE_NAME dstnat meta l4proto icmpv6 icmpv6 type echo-request counter jump PSW_PING"
 		nft_emit "add rule $NFTABLE_NAME nat_output meta l4proto icmpv6 icmpv6 type echo-request counter jump PSW_PING"
 	}
 }
 
 filter_node() {
-	local proxy_node="$1" stream proxy_port
-	stream=$(echo "$2" | tr 'A-Z' 'a-z')
-	proxy_port="${3:-}"
+	local proxy_node="$1" stream="$2"
 
 	filter_rules() {
-		local node="$1" rule_stream="$2" nested="${3:-0}"
-		local type address port ip_type resolved dst_rule
+		local node="$1" address port ip_type resolved
 		[ -n "$node" ] && [ "$node" != "nil" ] || return 0
-		type=$(echo "$(config_n_get "$node" type)" | tr 'A-Z' 'a-z')
 		address=$(config_n_get "$node" address)
 		port=$(config_n_get "$node" port)
 		for ip_type in ip ip6; do
 			[ "$ip_type" = "ip" ] && resolved=$(get_host_ip ipv4 "$address") || resolved=$(get_host_ip ipv6 "$address")
 			[ -n "$resolved" ] || continue
-			dst_rule="return"
-			[ "$nested" = "1" ] && [ -n "$proxy_port" ] && dst_rule="goto PSW_ROUTE_PROXY"
-			nft_emit "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE meta l4proto $rule_stream $ip_type daddr $resolved $rule_stream dport $port $dst_rule"
+			nft_emit "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE meta l4proto $stream $ip_type daddr $resolved $stream dport $port return"
 		done
 	}
 
@@ -550,19 +516,19 @@ filter_node() {
 	case "$protocol" in
 		_balancing)
 			for node in $(config_n_get "$proxy_node" balancing_node); do
-				filter_rules "$node" "$stream"
+				filter_rules "$node"
 			done
 		;;
 		_shunt)
 			default_node=$(config_n_get "$proxy_node" default_node _direct)
 			main_node=$(config_n_get "$proxy_node" main_node nil)
 			if [ "$main_node" != "nil" ]; then
-				filter_rules "$main_node" "$stream"
+				filter_rules "$main_node"
 			elif [ "$default_node" != "_direct" ] && [ "$default_node" != "_blackhole" ]; then
-				filter_rules "$default_node" "$stream"
+				filter_rules "$default_node"
 			fi
 		;;
-		*) filter_rules "$proxy_node" "$stream" ;;
+		*) filter_rules "$proxy_node" ;;
 	esac
 }
 
@@ -577,13 +543,9 @@ setup_node_bypass() {
 		nft_emit "insert rule $NFTABLE_NAME PSW_OUTPUT_MANGLE oifname \"$iface\" counter return"
 	done
 
-	local node port stream
 	if [ "$ENABLED_DEFAULT_ACL" = "1" ]; then
-		for stream in TCP UDP; do
-			[ "$stream" = "TCP" ] && node="$TCP_NODE" && port="$TCP_REDIR_PORT"
-			[ "$stream" = "UDP" ] && node="$UDP_NODE" && port="$UDP_REDIR_PORT"
-			[ "$node" != "nil" ] && filter_node "$node" "$stream" "$port"
-		done
+		[ "$TCP_NODE" = nil ] || filter_node "$TCP_NODE" tcp
+		[ "$UDP_NODE" = nil ] || filter_node "$UDP_NODE" udp
 	fi
 }
 
@@ -597,13 +559,13 @@ nft_read_config() {
 	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6)
 	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface)
 	iproute_shunt_offloading_interface=""
-	iproute_shunt_logical_interfaces=""
+	network_flush_cache
+	network_get_device lan_device lan || lan_device=""
 	if [ "$iproute_shunt" = 1 ]; then
 		if ! iproute_shunt_offloading_interface=$(nft_offload_devices 2>/dev/null); then
 			iproute_shunt_offloading_interface=""
 			debuglog 转发 "无法获取硬件加速接口，PBR 继续使用普通转发"
 		fi
-		iproute_shunt_logical_interfaces=$(passwall_proxy_interfaces "$iproute_shunt_interface")
 	fi
 	accept_icmp=$(config_t_get global_forwarding accept_icmp 1)
 	accept_icmpv6=$(config_t_get global_forwarding accept_icmpv6 1)
@@ -697,14 +659,13 @@ nft_pbr_ready() {
 	[ -e "/sys/class/net/$device" ] &&
 		[ "$(cat "/sys/class/net/$device/operstate")" != down ] || return 1
 	# Link-up precedes DHCP and IPv6 DAD. Keep the guard until this family
-	# has a usable address; a later hotplug event will install its gateway.
+	# has a usable address; a later WAN event can install its gateway.
 	[ -n "$(ip -"$family" -o address show dev "$device" 2>/dev/null | grep -Ev 'tentative|dadfailed')" ]
 }
 
 nft_routes() {
 	local family gateway
 	for family in 4 6; do
-		[ "$family" = 4 ] || [ "$PROXY_IPV6" = 1 ] || continue
 		# This guard remains when a link disappears, so PROXY cannot fall through to main.
 		ip -$family route replace unreachable default metric 32767 table "$PROXY_ROUTE_TABLE" || return 1
 		if [ "$iproute_shunt" = 1 ]; then
@@ -744,13 +705,14 @@ nft_network_snapshot() {
 		printf '%s=%s\n' "$key" "$(config_t_get global_forwarding "$key")"
 	done
 	network_flush_cache
-	for interface in $(printf '%s\n' wan wan6 lan $iproute_shunt_logical_interfaces | sort -u); do
+	for interface in wan wan6; do
 		network_get_device device "$interface"
 		printf '%s %s\n' "$interface" "$device"
 		[ -n "$device" ] || continue
 		cat "/sys/class/net/$device/ifindex" "/sys/class/net/$device/operstate" 2>/dev/null
 		ip -o address show dev "$device" 2>/dev/null | awk '{print $2, $3, $4}'
 	done
+	device_subnets "$lan_device"
 	if [ "$iproute_shunt" = 1 ]; then
 		printf 'proxy_device=%s\n' "$iproute_shunt_interface"
 		cat "/sys/class/net/$iproute_shunt_interface/ifindex" "/sys/class/net/$iproute_shunt_interface/operstate" 2>/dev/null

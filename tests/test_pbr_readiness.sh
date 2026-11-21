@@ -6,12 +6,12 @@ TEST_TMP=$(mktemp -d)
 trap 'rm -rf "$TEST_TMP"' EXIT
 uci() { :; }
 echolog() { :; }
-source <(sed 's#^\. /usr/share/passwall/network.sh$#:#' "$SCRIPT")
+source <(sed 's#^\. /lib/functions/network.sh$#:#' "$SCRIPT")
 iproute_shunt=1
 iproute_shunt_interface=lo
 iproute_shunt_gw_v4=192.0.2.1
 iproute_shunt_gw_v6=fe80::1
-PROXY_IPV6=1
+
 ADDRESS4= ADDRESS6= REJECT_GATEWAY=0
 ip() {
  printf '%s\n' "$*" >> "$TEST_TMP/calls"
@@ -42,7 +42,7 @@ REJECT_GATEWAY=1
 if nft_routes; then echo 'Rejected gateway was treated as a missing address'; exit 1; fi
 
 # The reload cache must observe a DAD-only readiness change as well.
-iproute_shunt_offloading_interface= iproute_shunt_logical_interfaces=
+iproute_shunt_offloading_interface= lan_device=
 RESOLVFILE="$TEST_TMP/resolv"
 touch "$RESOLVFILE"
 network_flush_cache() { :; }

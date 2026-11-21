@@ -118,12 +118,6 @@ local function create_task_tmp_dir()
 	end
 end
 
-local function cleanup_task_tmp_dir()
-	if task_tmp_dir and task_tmp_dir:match("^/tmp/passwall%-rule%-update%.[A-Za-z0-9]+$") then
-		sys.call("rm -rf " .. shell_quote(task_tmp_dir) .. " >/dev/null 2>&1")
-	end
-end
-
 -- curl_logic retains the proxy-first fallback; curl's retry policy applies to
 -- both the SOCKS attempt and the direct fallback.
 local function curl(url, file)
@@ -267,8 +261,7 @@ log("开始更新")
 task_tmp_dir = create_task_tmp_dir()
 if task_tmp_dir then
 	rule_publish_dir = task_tmp_dir .. "/rules"
-	nixio.fs.mkdir(rule_publish_dir)
-	if nixio.fs.stat(rule_publish_dir, "type") ~= "dir" then
+	if not fs.mkdir(rule_publish_dir) then
 		log("规则暂存目录创建失败，跳过本次规则更新。")
 		rule_publish_dir = nil
 		update_failed = true
@@ -287,7 +280,7 @@ end
 if rule_publish_dir and #staged_rules > 0 and not apply_staged_rules() then
 	update_failed = true
 end
-cleanup_task_tmp_dir()
+if task_tmp_dir then fs.remover(task_tmp_dir) end
 if update_failed then
 	job_write("failed", "更新未全部完成；失败的列表保留原文件")
 	log("更新未全部完成；失败的列表保留原文件")

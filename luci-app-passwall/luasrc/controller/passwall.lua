@@ -107,7 +107,7 @@ function ping_node()
    end
    socket:close()
   end
-  http_write_json({index=http.formvalue("index"), ping=delay})
+  http_write_json({ping=delay})
   return
  end
  local command
@@ -118,14 +118,11 @@ function ping_node()
  end
  local _, output = api.exec_call(command .. " 2>&1")
  local delay = output:match("time[=<]([%d.]+)")
- http_write_json({index=http.formvalue("index"), ping=delay})
+ http_write_json({ping=delay})
 end
 
 function urltest_node()
-	local index = luci.http.formvalue("index")
 	local id = luci.http.formvalue("id")
-	local e = {}
-	e.index = index
 	if not id or uci:get(appname, id) ~= "nodes" then http.status(400, "Invalid node"); return end
 	-- Test exactly what this LuCI session displays, including Save-only edits.
 	local code, directory = api.exec_call("mktemp -d /tmp/passwall-url-config.XXXXXX")
@@ -161,12 +158,12 @@ function urltest_node()
 		http_write_json({message="代理测试失败"})
 		return
 	end
-	local code, seconds = result:match("(%d+):([%d.]+)")
-	if tonumber(code) and tonumber(code) > 0 and tonumber(seconds) then
-		e.use_time = string.format("%.0f", tonumber(seconds) * 1000)
+	local http_code, seconds = result:match("(%d+):([%d.]+)")
+	local delay
+	if tonumber(http_code) and tonumber(http_code) > 0 and tonumber(seconds) then
+		delay = string.format("%.0f", tonumber(seconds) * 1000)
 	end
-	luci.http.prepare_content("application/json")
-	luci.http.write_json(e)
+	http_write_json({use_time=delay})
 end
 
 function copy_node()

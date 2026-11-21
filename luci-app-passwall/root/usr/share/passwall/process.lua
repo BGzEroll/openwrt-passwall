@@ -58,11 +58,11 @@ end
 local function ports_ready(instance)
  local config = config_arg(instance.command)
  local command = instance.command
- if command[3]:match('/dns2tcp$') then
+ if command[3] == '/usr/bin/dns2tcp' then
   for i = 4, #command - 1 do
    if command[i] == '-L' then return listening('udp', command[i + 1]:match('#(%d+)$')) end
   end
- elseif command[3]:match('/chinadns%-ng$') and config then
+ elseif command[3] == '/usr/bin/chinadns-ng' then
   local port = assert(fs.readfile(config)):match('bind%-port%s+(%d+)')
   return port and listening('udp', port)
  end
@@ -86,7 +86,7 @@ end
 local function dns_files(expected, direct_dns)
  local changed, created, obsolete = false, {}, {}
  for name, instance in pairs(expected) do
-  if instance.command[3]:match('/chinadns%-ng$') then
+  if instance.command[3] == '/usr/bin/chinadns-ng' then
    local source = (instance.data or {}).source_config or config_arg(instance.command)
    local text = assert(fs.readfile(source))
    if direct_dns and direct_dns ~= '' then
@@ -224,9 +224,9 @@ local function status()
  local enabled = uci:get('passwall', '@global[0]', 'enabled') == '1'
  local running = not not fs.access(root .. '/running')
  local pbr = uci:get('passwall', '@global_forwarding[0]', 'iproute_shunt') == '1'
- local nft_ready = sys.call("nft list tables | grep -Fxq 'table inet passwall'") == 0
- local forwarding = nft_ready
+ local forwarding = running and sys.call("nft list tables | grep -Fxq 'table inet passwall'") == 0
  for _, family in ipairs({4, 6}) do
+  if not forwarding then break end
   local routes = sys.exec('ip -' .. family .. ' route show table 100 2>/dev/null')
   local rules = sys.exec('ip -' .. family .. ' rule show 2>/dev/null')
   local found = false

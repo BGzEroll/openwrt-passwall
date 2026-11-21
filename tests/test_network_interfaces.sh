@@ -1,18 +1,27 @@
 #!/bin/bash
 set -eu
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
-source <(sed 's#^\. /lib/functions/network.sh$#:#' "$ROOT_DIR/luci-app-passwall/root/usr/share/passwall/network.sh")
-network_flush_cache() { :; }
-__network_ifstatus() { printf -v "$1" '%s' 'lan wan wan6 proxy_guest'; }
-network_get_device() {
- case "$2" in lan) printf -v "$1" br-lan ;; wan|wan6) printf -v "$1" eth0 ;; proxy_guest) return 1 ;; esac
-}
-network_get_physdev() {
- case "$2" in lan) printf -v "$1" br-lan ;; wan|wan6) printf -v "$1" eth0 ;; proxy_guest) printf -v "$1" br-proxy ;; esac
-}
-[ "$(passwall_proxy_interfaces eth0)" = $'wan\nwan6' ]
-[ "$(passwall_proxy_interfaces br-lan)" = lan ]
-[ "$(passwall_proxy_interfaces br-proxy)" = proxy_guest ]
-[ -z "$(passwall_proxy_interfaces unknown)" ]
-[ -z "$(passwall_proxy_interfaces '')" ]
-echo 'Linux devices resolve to logical interfaces, including physical-device fallback when down'
+TEST_TMP=$(mktemp -d)
+trap 'rm -rf "$TEST_TMP"' EXIT
+sed 's|/etc/init.d/passwall reload network|record_reload|' \
+    "$ROOT_DIR/luci-app-passwall/root/etc/hotplug.d/iface/98-passwall" > "$TEST_TMP/hotplug"
+
+record_reload() { printf '%s %s\n' "$INTERFACE" "$ACTION" >> "$TEST_TMP/events"; }
+sleep() { :; }
+event() (
+ ACTION=$1 INTERFACE=$2
+ source "$TEST_TMP/hotplug"
+ wait
+)
+
+event ifup wan
+event ifupdate wan6
+event ifdown wan
+event ifdown lan
+event ifupdate localproxy
+event ifup guest
+event ifup ''
+event iflink wan
+printf '%s\n' 'wan ifup' 'wan6 ifupdate' 'wan ifdown' > "$TEST_TMP/expected"
+cmp "$TEST_TMP/expected" "$TEST_TMP/events"
+echo 'Hotplug reloads only for WAN and DHCPv6 uplink events'

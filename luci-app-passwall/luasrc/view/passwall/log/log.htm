@@ -26,7 +26,6 @@
 	var paused = false;
 	var clearBusy = false;
 	var viewVersion = 0;
-	var nextRequestId = 0;
 	var activeRequest = null;
 	var initialSource = new URLSearchParams(window.location.search).get('source');
 	if (initialSource === 'TCP' || initialSource === 'UDP') source.value = initialSource;
@@ -47,17 +46,15 @@
 		if (paused || (clearBusy && name === 'runtime'))
 			return;
 
-		if (activeRequest && activeRequest.version === viewVersion)
+		if (activeRequest)
 			return;
 
-		var request = { id: ++nextRequestId, version: viewVersion, name: name };
+		var request = {};
 		activeRequest = request;
 		XHR.get(logUrl(name), null, function(xhr) {
-			if (activeRequest && activeRequest.id === request.id)
-				activeRequest = null;
-
-			if (paused || request.version !== viewVersion || request.name !== source.value)
+			if (activeRequest !== request)
 				return;
+			activeRequest = null;
 
 			if (!xhr) {
 				feedback.textContent = '读取失败';
@@ -107,7 +104,7 @@
 		XHR.get('<%=api.url("clear_log")%>', null, function(xhr) {
 			clearBusy = false;
 			updateClearButton();
-			if (clearVersion !== viewVersion || source.value !== 'runtime')
+			if (clearVersion !== viewVersion)
 				return;
 
 			if (xhr && xhr.status === 200) {
