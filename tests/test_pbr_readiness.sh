@@ -42,12 +42,11 @@ REJECT_GATEWAY=1
 if nft_routes; then echo 'Rejected gateway was treated as a missing address'; exit 1; fi
 
 # The reload cache must observe a DAD-only readiness change as well.
-iproute_shunt_offloading_interface= lan_device=
+lan_device=
 RESOLVFILE="$TEST_TMP/resolv"
 touch "$RESOLVFILE"
 network_flush_cache() { :; }
 network_get_device() { printf -v "$1" ''; }
-config_t_get() { local key="$2"; printf '%s\n' "${!key}"; }
 ADDRESS6=$'1: lo inet6 fe80::2/64 scope link tentative\n'
 nft_network_snapshot > "$TEST_TMP/tentative"
 ADDRESS6=$'1: lo inet6 fe80::2/64 scope link dadfailed\n'

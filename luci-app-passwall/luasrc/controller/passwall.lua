@@ -10,11 +10,7 @@ local http = require "luci.http"
 local util = require "luci.util"
 
 function index()
-	if not nixio.fs.access("/etc/config/passwall") then
-		if nixio.fs.access("/usr/share/passwall/0_default_config") then
-			luci.sys.call('cp -f /usr/share/passwall/0_default_config /etc/config/passwall')
-		else return end
-	end
+	if not nixio.fs.access("/etc/config/passwall") then return end
 	local appname = "passwall"			-- global definitions not available
 	entry({"admin", "services", appname}).dependent = true
 	local e = entry({"admin", "services", appname}, alias("admin", "services", appname, "settings"), _("Passwall"), -1)

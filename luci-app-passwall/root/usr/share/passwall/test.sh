@@ -26,7 +26,7 @@ trap cleanup EXIT
 trap 'exit 1' INT TERM
 port=$(/usr/share/passwall/app.sh get_new_port 61080 tcp) || exit 1
 # Only this wrapper owns the lock; the background core must not retain it.
-/usr/share/passwall/app.sh run_socks "flag=url_test_$node" "node=$node" bind=127.0.0.1 "socks_port=$port" config_file=test.json 7>&- || exit 1
+/usr/share/passwall/app.sh run_socks "$node" "$port" 7>&- || exit 1
 sleep 1
 curl --connect-timeout 3 --max-time 10 -o /dev/null -I -skL -w '%{http_code}:%{time_starttransfer}' \
 	-x "socks5h://127.0.0.1:$port" https://www.google.com/generate_204

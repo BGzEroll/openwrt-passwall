@@ -558,24 +558,22 @@ nft_read_config() {
 	iproute_shunt_gw_v4=$(config_t_get global_forwarding iproute_shunt_gw_v4)
 	iproute_shunt_gw_v6=$(config_t_get global_forwarding iproute_shunt_gw_v6)
 	iproute_shunt_interface=$(config_t_get global_forwarding iproute_shunt_interface)
-	iproute_shunt_offloading_interface=""
 	network_flush_cache
 	network_get_device lan_device lan || lan_device=""
-	if [ "$iproute_shunt" = 1 ]; then
-		if ! iproute_shunt_offloading_interface=$(nft_offload_devices 2>/dev/null); then
-			iproute_shunt_offloading_interface=""
-			debuglog 转发 "无法获取硬件加速接口，PBR 继续使用普通转发"
-		fi
-	fi
 	accept_icmp=$(config_t_get global_forwarding accept_icmp 1)
 	accept_icmpv6=$(config_t_get global_forwarding accept_icmpv6 1)
 }
 
 setup_flow_offload() {
 	[ "$iproute_shunt" = 1 ] || return 0
-	[ -n "$iproute_shunt_offloading_interface" ] || return 0
+	local devices
+	if ! devices=$(nft_offload_devices 2>/dev/null); then
+		debuglog 转发 "无法获取硬件加速接口，PBR 继续使用普通转发"
+		return 0
+	fi
+	[ -n "$devices" ] || return 0
 	create_chain PSW_HWNAT_PASS
-	nft_emit "add flowtable $NFTABLE_NAME ft { hook ingress priority filter - 1; devices = { $iproute_shunt_offloading_interface }; flags offload; counter; }"
+	nft_emit "add flowtable $NFTABLE_NAME ft { hook ingress priority filter - 1; devices = { $devices }; flags offload; counter; }"
 	nft_emit "add rule $NFTABLE_NAME hwnat_pass meta l4proto { tcp, udp } counter jump PSW_HWNAT_PASS"
 	nft_emit "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } meta mark != $PROXY_MARK ct mark != $PROXY_MARK flow add @ft"
 	nft_emit "add rule $NFTABLE_NAME PSW_HWNAT_PASS meta l4proto { tcp, udp } ct direction original meta mark $PROXY_MARK counter flow add @ft"
@@ -699,11 +697,8 @@ nft_stop() {
 }
 
 nft_network_snapshot() {
-	local interface device key family
-	printf 'offload_devices=%s\n' "$iproute_shunt_offloading_interface"
-	for key in iproute_shunt iproute_shunt_gw_v4 iproute_shunt_gw_v6 iproute_shunt_interface; do
-		printf '%s=%s\n' "$key" "$(config_t_get global_forwarding "$key")"
-	done
+	local interface device family
+	printf 'pbr=%s %s %s %s\n' "$iproute_shunt" "$iproute_shunt_interface" "$iproute_shunt_gw_v4" "$iproute_shunt_gw_v6"
 	network_flush_cache
 	for interface in wan wan6; do
 		network_get_device device "$interface"
@@ -730,27 +725,6 @@ nft_network_snapshot() {
 	ip -4 route show default
 	ip -6 route show default
 	cat "$RESOLVFILE" 2>/dev/null
-}
-
-nft_bridge_start() {
-	local key value
-	for key in ipt ip6t; do
-		[ "$key" = ipt ] && value=iptables || value=ip6tables
-		if [ ! -e "$STATE_PATH/bridge_nf_$key" ]; then
-			sysctl -e -n "net.bridge.bridge-nf-call-$value" > "$STATE_PATH/bridge_nf_$key"
-		fi
-		sysctl -w "net.bridge.bridge-nf-call-$value=0" >/dev/null 2>&1 || :
-	done
-}
-
-nft_bridge_stop() {
-	local key name value
-	for key in ipt ip6t; do
-		[ "$key" = ipt ] && name=iptables || name=ip6tables
-		[ -s "$STATE_PATH/bridge_nf_$key" ] || continue
-		value=$(cat "$STATE_PATH/bridge_nf_$key")
-		sysctl -w "net.bridge.bridge-nf-call-$name=$value" >/dev/null 2>&1 || :
-	done
 }
 
 nft_include() {

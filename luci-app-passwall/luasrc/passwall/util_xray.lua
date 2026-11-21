@@ -1,4 +1,3 @@
-module("luci.passwall.util_xray", package.seeall)
 local api = require "luci.passwall.api"
 local uci = api.uci
 local sys = api.sys
@@ -32,45 +31,23 @@ local function get_domain_excluded()
 	return hosts
 end
 
-function gen_outbound(flag, node, tag, proxy_table)
+local function gen_outbound(node, tag, proxy_table)
 	local result = nil
 	if node and node ~= "nil" then
 		local node_id = node[".name"]
+		assert(node.type == "Xray", "只支持 Xray 节点：" .. tostring(node_id))
 		if tag == nil then
 			tag = node_id
 		end
 
-		local proxy = 0
-		local proxy_tag = "nil"
-		local fragment = nil
-		if proxy_table ~= nil and type(proxy_table) == "table" then
-			proxy = proxy_table.proxy or 0
-			proxy_tag = proxy_table.tag or "nil"
-			fragment = proxy_table.fragment or nil
+		local proxy_tag = proxy_table and proxy_table.tag or "nil"
+		local fragment = proxy_table and proxy_table.fragment
+		if node.flow ~= "xtls-rprx-vision" and proxy_tag ~= "nil" then
+			node.proxySettings = {tag = proxy_tag, transportLayer = true}
 		end
 
-		if node.type == "Xray" then
-			if node.flow == "xtls-rprx-vision" then
-			else
-				proxy = 0
-				if proxy_tag ~= "nil" then
-					node.proxySettings = {
-						tag = proxy_tag,
-						transportLayer = true
-					}
-				end
-			end
-		end
-
-		assert(node.type == "Xray", "只支持 Xray 节点：" .. tostring(node_id))
-
-		if node.type == "Xray" then
-			if node.tls and node.tls == "1" then
-				node.stream_security = "tls"
-				if node.type == "Xray" and node.reality and node.reality == "1" then
-					node.stream_security = "reality"
-				end
-			end
+		if node.tls == "1" then
+			node.stream_security = node.reality == "1" and "reality" or "tls"
 		end
 
 		if node.protocol == "wireguard" and node.wireguard_reserved then
@@ -90,7 +67,6 @@ function gen_outbound(flag, node, tag, proxy_table)
 
 		result = {
 			_flag_tag = node_id,
-			_flag_proxy = proxy,
 			_flag_proxy_tag = proxy_tag,
 			tag = tag,
 			proxySettings = node.proxySettings or nil,
@@ -113,14 +89,14 @@ function gen_outbound(flag, node, tag, proxy_table)
 				tlsSettings = (node.stream_security == "tls") and {
 					serverName = node.tls_serverName,
 					allowInsecure = (node.tls_allowInsecure == "1") and true or false,
-					fingerprint = (node.type == "Xray" and node.utls == "1" and node.fingerprint and node.fingerprint ~= "") and node.fingerprint or nil
+					fingerprint = (node.utls == "1" and node.fingerprint and node.fingerprint ~= "") and node.fingerprint or nil
 				} or nil,
 				realitySettings = (node.stream_security == "reality") and {
 					serverName = node.tls_serverName,
 					publicKey = node.reality_publicKey,
 					shortId = node.reality_shortId or "",
 					spiderX = node.reality_spiderX or "/",
-					fingerprint = (node.type == "Xray" and node.fingerprint and node.fingerprint ~= "") and node.fingerprint or "chrome"
+					fingerprint = (node.fingerprint and node.fingerprint ~= "") and node.fingerprint or "chrome"
 				} or nil,
 				tcpSettings = (node.transport == "tcp" and node.protocol ~= "socks") and {
 					header = {
@@ -247,8 +223,7 @@ function gen_outbound(flag, node, tag, proxy_table)
 	return result
 end
 
-function gen_config(var)
-	local flag = var["-flag"]
+local function gen_config(var)
 	local node_id = var["-node"]
 	local tcp_redir_port = var["-tcp_redir_port"]
 	local udp_redir_port = var["-udp_redir_port"]
@@ -366,7 +341,7 @@ function gen_config(var)
 				end
 				if is_new_blc_node then
 					local blc_node = uci:get_all(appname, blc_node_id)
-					local outbound = gen_outbound(flag, blc_node, blc_node_tag, { fragment = xray_settings.fragment == "1" or nil })
+					local outbound = gen_outbound(blc_node, blc_node_tag, { fragment = xray_settings.fragment == "1" or nil })
 					if outbound then
 						table.insert(outbounds, outbound)
 						valid_nodes[#valid_nodes + 1] = blc_node_tag
@@ -389,7 +364,7 @@ function gen_config(var)
 				if is_new_node then
 					local fallback_node = uci:get_all(appname, fallback_node_id)
 					if fallback_node.protocol ~= "_balancing" then
-						local outbound = gen_outbound(flag, fallback_node, fallback_node_id, { fragment = xray_settings.fragment == "1" or nil })
+					local outbound = gen_outbound(fallback_node, fallback_node_id, { fragment = xray_settings.fragment == "1" or nil })
 						if outbound then
 							table.insert(outbounds, outbound)
 						else
@@ -430,7 +405,7 @@ function gen_config(var)
 			if node.to_node then
 				local to_node = uci:get_all(appname, node.to_node)
 				if to_node then
-					local to_outbound = gen_outbound(nil, to_node)
+					local to_outbound = gen_outbound(to_node)
 					if to_outbound then
 						if shunt_rule_name then
 							to_outbound.tag = outbound.tag
@@ -512,13 +487,12 @@ function gen_config(var)
 						})
 					end
 					local proxy_table = {
-						proxy = use_proxy and 1 or 0,
 						tag = use_proxy and proxy_tag or nil
 					}
 					if xray_settings.fragment == "1" and not proxy_table.tag then
 						proxy_table.fragment = true
 					end
-					local outbound = gen_outbound(flag, _node, rule_name, proxy_table)
+					local outbound = gen_outbound(_node, rule_name, proxy_table)
 					local outbound_tag
 					if outbound then
 						set_outbound_detour(_node, outbound, outbounds, rule_name)
@@ -704,7 +678,7 @@ function gen_config(var)
 				fs.writefile((os.getenv("PASSWALL_TMP_PATH") or "/tmp/etc/passwall") .. "/iface/" .. node.iface, "")
 			end
 		else
-			local outbound = gen_outbound(flag, node, nil, { fragment = xray_settings.fragment == "1" or nil })
+		local outbound = gen_outbound(node, nil, { fragment = xray_settings.fragment == "1" or nil })
 			if outbound then
 				set_outbound_detour(node, outbound, outbounds)
 				table.insert(outbounds, outbound)
@@ -960,11 +934,6 @@ function gen_config(var)
 	end
 end
 
-_G.gen_config = gen_config
-
-if arg[1] then
-	local func =_G[arg[1]]
-	if func then
-		print(func(api.get_args(arg, 2)))
-	end
+if arg[1] == "gen_config" then
+	print(gen_config(api.get_args(arg, 2)))
 end

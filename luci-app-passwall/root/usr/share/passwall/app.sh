@@ -10,8 +10,7 @@ TMP_PATH=${PASSWALL_TMP_PATH:-/tmp/etc/$CONFIG}
 PROCESS_DIR=$STATE_PATH/processes
 TMP_ACL_PATH=$TMP_PATH/acl
 TMP_IFACE_PATH=$TMP_PATH/iface
-DNSMASQ_PATH=/etc/dnsmasq.d
-TMP_DNSMASQ_PATH=/tmp/dnsmasq.d/passwall
+DNSMASQ_CONF=/tmp/dnsmasq.d/dnsmasq-passwall.conf
 LOG_FILE=/tmp/log/$CONFIG.log
 APP_PATH=/usr/share/$CONFIG
 RULES_PATH=/usr/share/${CONFIG}/rules
@@ -139,15 +138,6 @@ get_new_port() {
 		}'
 }
 
-set_vars() {
-	local assignment key
-	for assignment in "$@"; do
-		key=${assignment%%=*}
-		case "$key" in ''|[0-9]*|*[!A-Za-z0-9_]*) return 1 ;; esac
-		export "$assignment" || return 1
-	done
-}
-
 ln_run() {
 	local binary="$1" name="$2" output="$3"
 	shift 3
@@ -164,13 +154,13 @@ ln_run() {
 }
 
 run_xray() {
-	local flag node tcp_redir_port udp_redir_port socks_address socks_port
+	local node tcp_redir_port udp_redir_port socks_address socks_port
 	local dns_listen_port remote_dns_tcp_server remote_dns_doh dns_client_ip dns_cache dns_socks_address dns_socks_port
 	local loglevel log_file config_file
-	set_vars "$@" || return 1
+	export "$@" || return 1
 	[ -n "$log_file" ] || log_file=/dev/null
 	[ -n "$loglevel" ] || loglevel=$(config_t_get global loglevel warning)
-	set -- -flag "$flag" -node "$node" -tcp_redir_port "$tcp_redir_port" -udp_redir_port "$udp_redir_port" \
+	set -- -node "$node" -tcp_redir_port "$tcp_redir_port" -udp_redir_port "$udp_redir_port" \
 	 -local_socks_address "$socks_address" -local_socks_port "$socks_port" \
 	 -dns_listen_port "$dns_listen_port" -dns_client_ip "$dns_client_ip" -dns_cache "$dns_cache" \
 	 -dns_socks_address "$dns_socks_address" -dns_socks_port "$dns_socks_port" \
@@ -181,7 +171,7 @@ run_xray() {
 
 run_chinadns_ng() {
 	local _flag _listen_port _dns_local _dns_trust _use_direct_list _use_proxy_list _gfwlist _chnroute _default_mode _default_tag
-	set_vars "$@"
+	export "$@" || return 1
 
 	local _CONF_FILE=$TMP_ACL_PATH/$_flag/chinadns_ng.conf
 	local _LOG_FILE=$TMP_ACL_PATH/$_flag/chinadns_ng.log
@@ -196,10 +186,7 @@ run_chinadns_ng() {
 		ipset-name6 inet@passwall@passwall_chnroute6
 	EOF
 
-	# This function may be called multiple times, so add a condition here to avoid repeated execution.
-	[ ! -f "${TMP_PATH}/vpslist" ] && {
-		node_addresses | grep -v -Fx "engage.cloudflareclient.com" | grep '[a-zA-Z]$' | sort -u > "${TMP_PATH}/vpslist"
-	}
+	node_addresses | grep -v -Fx "engage.cloudflareclient.com" | grep '[a-zA-Z]$' | sort -u > "${TMP_PATH}/vpslist"
 	[ -s "${TMP_PATH}/vpslist" ] && {
 		local vpslist4_set="inet@passwall@passwall_vpslist"
 		local vpslist6_set="inet@passwall@passwall_vpslist6"
@@ -261,19 +248,15 @@ run_chinadns_ng() {
 }
 
 run_socks() {
-	local flag node bind socks_port config_file log_file
-	set_vars "$@" || return 1
+	local node="$1" port="$2"
 	[ "$(config_n_get "$node" type)" = Xray ] || { echolog 核心 "节点 $node 不是 Xray 节点"; return 1; }
-	case "$config_file" in "$TMP_PATH"/*) ;; *) config_file="$TMP_PATH/$config_file" ;; esac
-	case "$log_file" in "$TMP_PATH"/*) ;; '') log_file=/dev/null ;; *) log_file="$TMP_PATH/$log_file" ;; esac
-	run_xray "flag=$flag" "node=$node" "socks_address=${bind:-127.0.0.1}" \
-		"socks_port=$socks_port" \
-		"config_file=$config_file" "log_file=$log_file"
+	run_xray "node=$node" socks_address=127.0.0.1 \
+		"socks_port=$port" "config_file=$TMP_PATH/test.json"
 }
 
 run_redir() {
-	local node proto bind local_port config_file log_file
-	set_vars "$@" || return 1
+	local node proto local_port config_file log_file
+	export "$@" || return 1
 	[ "$(config_n_get "$node" type)" = Xray ] || { echolog 核心 "节点 $node 不是 Xray 节点"; return 1; }
 	config_file="$TMP_ACL_PATH/default/$config_file"
 	proto=$(printf '%s' "$proto" | tr 'A-Z' 'a-z')
@@ -283,18 +266,17 @@ run_redir() {
 		log_file=/dev/null
 	fi
 	if [ "$proto" = udp ]; then
-		run_xray flag=UDP "node=$node" "udp_redir_port=$local_port" "config_file=$config_file" "log_file=$log_file"
+		run_xray "node=$node" "udp_redir_port=$local_port" "config_file=$config_file" "log_file=$log_file"
 		return $?
 	fi
 
 	tcp_node_socks_port=$(config_t_get global tcp_node_socks_port 1070)
-	local socks_bind=127.0.0.1 flag=TCP
+	local socks_bind=127.0.0.1
 	[ "$(config_t_get global tcp_node_socks_bind_local 1)" = 1 ] || socks_bind=0.0.0.0
 	set --
 	if [ "$TCP_UDP" = 1 ]; then
 		UDP_REDIR_PORT=$local_port
 		UDP_NODE=nil
-		flag=TCP_UDP
 		set -- "udp_redir_port=$local_port"
 	fi
 	local protocol=$(config_n_get "$node" protocol)
@@ -316,7 +298,7 @@ run_redir() {
 			set -- "$@" "remote_dns_doh=$(config_t_get global remote_dns_doh https://1.1.1.1/dns-query)"
 		fi
 	fi
-	run_xray "flag=$flag" "node=$node" "tcp_redir_port=$local_port" \
+	run_xray "node=$node" "tcp_redir_port=$local_port" \
 		"socks_address=$socks_bind" "socks_port=$tcp_node_socks_port" \
 		"config_file=$config_file" "log_file=$log_file" "$@" || return 1
 	printf '%s\n' "127.0.0.1:$tcp_node_socks_port" > "$TMP_ACL_PATH/default/TCP_SOCKS_server"
@@ -333,8 +315,7 @@ start_redir() {
 		[ "$proto:$TCP_UDP" != TCP:1 ] || protocol=tcp,udp
 		port=$(get_new_port "$current_port" "$protocol") || return 1
 		eval ${proto}_REDIR_PORT=$port
-		run_redir node=$node proto=${proto} bind=0.0.0.0 local_port=$port config_file=$config_file log_file=$log_file || return 1
-		echo $node > $TMP_ACL_PATH/default/${proto}.id
+		run_redir node=$node proto=${proto} local_port=$port config_file=$config_file log_file=$log_file || return 1
 	else
 		[ "${proto}" = "UDP" ] && [ "$TCP_UDP" = "1" ] && return
 		debuglog 核心 "${proto}节点没有选择或为空，不代理${proto}"
@@ -463,34 +444,24 @@ start_dns() {
 }
 
 app_dns_generate() {
-	local work="$1" default_dns
-	# This is a configuration choice, not a value restored from runtime state.
-	default_dns=$(config_t_get global use_default_dns direct)
-	[ "${CHINADNS_DNS:-0}" = 0 ] || default_dns=chinadns_ng
-	mkdir -p "$work/publish" || return 1
+	local work="$1"
 	lua "$APP_PATH/helper_dnsmasq_add.lua" \
-		-TMP_DNSMASQ_PATH "$work/publish" -DNSMASQ_CONF_FILE "$work/entry.conf" \
+		-DNSMASQ_CONF_FILE "$work/dnsmasq.conf" \
 		-LOCAL_DNS "${LOCAL_DNS:-nil}" \
 		-TUN_DNS "${TUN_DNS:-nil}" \
-		-USE_DEFAULT_DNS "$default_dns" -CHINADNS_DNS "${CHINADNS_DNS:-0}" \
+		-USE_DEFAULT_DNS "$(config_t_get global use_default_dns direct)" -CHINADNS_DNS "${CHINADNS_DNS:-0}" \
 		-USE_DIRECT_LIST "$USE_DIRECT_LIST" -USE_PROXY_LIST "$USE_PROXY_LIST" \
 		-USE_BLOCK_LIST "$USE_BLOCK_LIST" -USE_GFW_LIST "$USE_GFW_LIST" -CHN_LIST "$CHN_LIST" \
 		-TCP_NODE "$TCP_NODE" -DEFAULT_PROXY_MODE "$TCP_PROXY_MODE" || return 1
-	sed "s|^conf-dir=.*|conf-dir=$TMP_DNSMASQ_PATH|" "$work/entry.conf" > "$work/publish.conf" || return 1
 	sha256sum /etc/hosts > "$work/hosts.sha256" || return 1
 }
 
 app_dns_check() {
 	local work="$1"
-	dnsmasq --test --conf-file="$work/entry.conf" > "$work/dns-check.log" 2>&1 || {
+	dnsmasq --test --conf-file="$work/dnsmasq.conf" > "$work/dns-check.log" 2>&1 || {
 		echolog DNS "DNS 候选配置检查失败：$(cat "$work/dns-check.log")"
 		return 1
 	}
-}
-
-app_dns_signature() {
-	[ -d "$1" ] || return 1
-	(cd "$1" && find . -type f -exec sha256sum '{}' ';' | sort | sha256sum)
 }
 
 app_dns_restart() {
@@ -498,7 +469,7 @@ app_dns_restart() {
 	local delta=/tmp/.uci/dhcp
 	# Keep UCI's global upstreams configured, but do not let them race the
 	# default upstream selected by Passwall in the running dnsmasq instance.
-	if grep -q '^server=' /tmp/dnsmasq.d/dnsmasq-passwall.conf 2>/dev/null; then
+	if grep -q '^server=[^/]' "$DNSMASQ_CONF" 2>/dev/null; then
 		if [ -e "$delta" ]; then
 			cp -p "$delta" "$work/dhcp.delta" || return 1
 			had_delta=1
@@ -524,31 +495,30 @@ app_dns_restart() {
 }
 
 app_dns_restore() {
-	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
-	rm -rf "$TMP_DNSMASQ_PATH"
-	[ ! -e "$work/old.files" ] || mv "$work/old.files" "$TMP_DNSMASQ_PATH"
-	rm -f "$entry"
-	[ ! -e "$work/old.conf" ] || mv "$work/old.conf" "$entry"
+	local work="$1"
+	if [ -e "$work/old.conf" ]; then
+		mv "$work/old.conf" "$DNSMASQ_CONF" || return 1
+	else
+		rm -f "$DNSMASQ_CONF" || return 1
+	fi
 	app_dns_restart "$work"
 }
 
 app_dns_apply() {
 	APP_DNS_APPLIED=0
-	local work="$1" entry=/tmp/dnsmasq.d/dnsmasq-passwall.conf
-	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] && cmp -s "$work/hosts.sha256" "$STATE_PATH/hosts.sha256" && cmp -s "$work/publish.conf" "$entry" && [ "$(app_dns_signature "$work/publish")" = "$(app_dns_signature "$TMP_DNSMASQ_PATH")" ]; then
+	local work="$1"
+	if [ "${APP_DNS_REDIRECT_CHANGED:-0}" = 0 ] &&
+		cmp -s "$work/hosts.sha256" "$STATE_PATH/hosts.sha256" &&
+		cmp -s "$work/dnsmasq.conf" "$DNSMASQ_CONF"; then
 		return 0
 	fi
 	[ "${2:-}" = prepared ] || app_dns_check "$work" || return 1
 	mkdir -p /tmp/dnsmasq.d || return 1
-	if [ -e "$entry" ]; then
-		cp -a "$entry" "$work/old.conf" || return 1
+	if [ -e "$DNSMASQ_CONF" ]; then
+		cp "$DNSMASQ_CONF" "$work/old.conf" || return 1
 	fi
-	if [ -e "$TMP_DNSMASQ_PATH" ]; then
-		mv "$TMP_DNSMASQ_PATH" "$work/old.files" || return 1
-	fi
-	if ! mv "$work/publish" "$TMP_DNSMASQ_PATH" ||
-		! mv "$work/publish.conf" "$entry" ||
-		! app_dns_restart "$work"; then
+	mv "$work/dnsmasq.conf" "$DNSMASQ_CONF" || return 1
+	if ! app_dns_restart "$work"; then
 		app_dns_restore "$work"
 		echolog DNS "DNS 配置应用失败，已尝试恢复旧配置"
 		return 1
@@ -587,7 +557,6 @@ app_runtime_save() {
 	mkdir -p "$STATE_PATH/runtime/config" && chmod 700 "$STATE_PATH/runtime/config" || return 1
 	cp "$CONFIG_INPUT/passwall" "$STATE_PATH/runtime/config/passwall.next" &&
 		mv "$STATE_PATH/runtime/config/passwall.next" "$STATE_PATH/runtime/config/passwall" || return 1
-	rm -f "$STATE_PATH/runtime/USE_DEFAULT_DNS" || return 1
 	for key in TCP_REDIR_PORT UDP_REDIR_PORT LOCAL_DNS TUN_DNS IPT_APPEND_DNS CHINADNS_DNS; do
 		eval 'printf "%s\n" "${'"$key"':-}"' > "$STATE_PATH/runtime/$key"
 	done
@@ -739,7 +708,7 @@ app_reload() {
 	nft_read_config || return 1
 	work=$(mktemp -d "$STATE_PATH/reload.XXXXXX") || return 1
 	nft_network_snapshot > "$work/network"
-	if { [ "$reason" = network ] || [ "$reason" = firewall ]; } &&
+	if [ "$reason" = network ] &&
 		cmp -s "$work/network" "$STATE_PATH/network" && app_system_matches && nft_present; then
 		rm -rf "$work"
 		return 0
@@ -752,7 +721,7 @@ app_reload() {
 		rm -rf "$work"
 		return 1
 	fi
-	if ! app_runtime_save || ! app_crontab 1; then
+	if ! app_runtime_save || { [ "$reason" = config ] && ! app_crontab 1; }; then
 		rm -rf "$work"
 		return 1
 	fi
@@ -790,7 +759,10 @@ app_update_rules() {
 		echolog 规则 "规则应用失败，已保留旧规则文件"
 		return 1
 	fi
-	rm -rf "$backup"
+	for backup in "$RULES_PATH"/.update.??????; do
+		[ -d "$backup" ] || continue
+		rm -rf -- "$backup" || echolog 规则 "无法清理旧规则备份：$backup"
+	done
 	debuglog 规则 "规则文件发布完成"
 }
 
@@ -835,7 +807,6 @@ app_start() {
 		rm -rf "$work"
 		return 1
 	fi
-	nft_bridge_start
 	if ! lua "$APP_PATH/process.lua" start "$PROCESS_DIR" ||
 		! app_apply "$work/apply" prepared ||
 		! app_runtime_save || ! mv "$work/core.sha256" "$STATE_PATH/core.sha256" ||
@@ -854,13 +825,11 @@ app_stop() {
 	local failed=0 dns_removed=0
 	rm -f "$STATE_PATH/running"
 	nft_stop || failed=1
-	nft_bridge_stop || failed=1
 	if [ -n "$FWI" ]; then printf '#!/bin/sh\n' > "$FWI" || failed=1; fi
 	app_processes_stop || failed=1
 	app_crontab 0 || failed=1
-	if [ -e /tmp/dnsmasq.d/dnsmasq-passwall.conf ]; then
-		rm -f /tmp/dnsmasq.d/dnsmasq-passwall.conf "$DNSMASQ_PATH/dnsmasq-passwall.conf" || failed=1
-		rm -rf "$TMP_DNSMASQ_PATH" || failed=1
+	if [ -e "$DNSMASQ_CONF" ]; then
+		rm -f "$DNSMASQ_CONF" || failed=1
 		dns_removed=1
 	fi
 	app_system_apply stopped || failed=1
@@ -870,7 +839,7 @@ app_stop() {
 	if [ "$failed" = 0 ]; then
 		app_remove_instance
 		rm -rf "$STATE_PATH/runtime"
-		rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/hosts.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft" "$STATE_PATH"/bridge_nf_*
+		rm -f "$STATE_PATH/core.sha256" "$STATE_PATH/hosts.sha256" "$STATE_PATH/network" "$STATE_PATH/rules.nft"
 		echolog 服务 "已停止"
 	else
 		echolog 服务 "Passwall 停止时有步骤失败，已继续清理并保留运行记录"
@@ -897,7 +866,15 @@ case "$1:$2" in
  ;;
 esac
 
-mkdir -p "$STATE_PATH"
+mkdir -p "$STATE_PATH" || exit 1
+if [ "$1" = stop ]; then
+	. "$APP_PATH/nftables.sh"
+	app_stop
+	exit $?
+fi
+
+export PASSWALL_TMP_PATH="$TMP_PATH"
+export XRAY_LOCATION_ASSET=/usr/share/v2ray/
 CONFIG_INPUT=$(mktemp -d "$STATE_PATH/config.XXXXXX") || exit 1
 trap 'rm -rf "$CONFIG_INPUT"' EXIT
 case "$1:$2" in
@@ -916,6 +893,12 @@ export PASSWALL_CONFIG_DIR="$CONFIG_INPUT"
 config_data=$(/sbin/uci -c "$CONFIG_INPUT" -t "$CONFIG_INPUT" -S -n export "$CONFIG") || exit 1
 eval "$config_data"
 unset config_data
+
+if [ "$1" = run_socks ]; then
+	mkdir -p "$TMP_IFACE_PATH" || exit 1
+	run_socks "$2" "$3"
+	exit $?
+fi
 
 ENABLED=$(config_t_get global enabled 0)
 TCP_REDIR_PORT=1041
@@ -947,10 +930,7 @@ UDP_PROXY_MODE=$(config_t_get global udp_proxy_mode proxy)
 [ "${TCP_PROXY_MODE}" != "disable" ] && TCP_PROXY_MODE="proxy"
 [ "${UDP_PROXY_MODE}" != "disable" ] && UDP_PROXY_MODE="proxy"
 LOCALHOST_PROXY=$(config_t_get global localhost_proxy 1)
-DNS_SHUNT=dnsmasq
-if [ "$(config_t_get global dns_shunt dnsmasq)" = chinadns-ng ] && [ -x /usr/bin/chinadns-ng ]; then
-	DNS_SHUNT=chinadns-ng
-fi
+DNS_SHUNT=$(config_t_get global dns_shunt dnsmasq)
 DNS_MODE=$(config_t_get global dns_mode tcp)
 REMOTE_DNS=$(config_t_get global remote_dns 1.1.1.1:53)
 dns_listen_port=${DNS_PORT}
@@ -966,9 +946,6 @@ LOCAL_DNS="${DEFAULT_DNS:-119.29.29.29,223.5.5.5}"
 IPT_APPEND_DNS=${LOCAL_DNS}
 
 
-export PASSWALL_TMP_PATH="$TMP_PATH"
-export V2RAY_LOCATION_ASSET=/usr/share/v2ray/
-export XRAY_LOCATION_ASSET=$V2RAY_LOCATION_ASSET
 mkdir -p /tmp/etc || exit 1
 
 # nftables.sh is a library, never a second command dispatcher.
@@ -977,15 +954,8 @@ mkdir -p /tmp/etc || exit 1
 arg1=$1
 shift
 case $arg1 in
-run_socks)
-	mkdir -p "$TMP_IFACE_PATH" || exit 1
-	run_socks "$@"
-	;;
 restart)
 	app_start restart
-	;;
-stop)
-	app_stop
 	;;
 start)
 	app_start

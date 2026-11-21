@@ -57,7 +57,7 @@ elseif operation == "status" or operation == "status-idle" or operation == "busy
 	os.exit(0)
 end
 
-if os.getenv("PASSWALL_RULE_UPDATE_LOCKED") ~= "1" then
+if operation ~= "run" or os.getenv("PASSWALL_RULE_UPDATE_LOCKED") ~= "1" then
 	io.stderr:write("请通过 rule_update.sh 运行规则更新\n")
 	os.exit(2)
 end
@@ -89,17 +89,9 @@ local rules = {
 }
 
 local selected = {}
-if operation then
-	for entry in operation:gmatch("[^,]+") do
-		if entry == "gfwlist" or entry == "chnroute" or entry == "chnroute6" then
-			selected[entry] = true
-		end
-	end
-else
-	for _, rule in ipairs(rules) do
-		if tonumber(ucic:get_first(name, "global_rules", rule.name .. "_update", rule.default)) == 1 then
-			selected[rule.name] = true
-		end
+for _, rule in ipairs(rules) do
+	if tonumber(ucic:get_first(name, "global_rules", rule.name .. "_update", rule.default)) == 1 then
+		selected[rule.name] = true
 	end
 end
 
@@ -113,7 +105,7 @@ end
 
 local function create_task_tmp_dir()
 	local path = (sys.exec("mktemp -d /tmp/passwall-rule-update.XXXXXX 2>/dev/null") or ""):match("^%s*(.-)%s*$")
-	if path:match("^/tmp/passwall%-rule%-update%.[A-Za-z0-9]+$") and nixio.fs.stat(path, "type") == "dir" then
+	if path ~= "" then
 		return path
 	end
 end

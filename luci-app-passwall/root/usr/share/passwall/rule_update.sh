@@ -27,33 +27,15 @@ else
 fi
 export PASSWALL_RULE_UPDATE_LOCKED=1
 run_worker() {
-	lua "$APP/rule_update.lua" "$@" 2>/var/run/passwall/rule-update.error
-
+	lua "$APP/rule_update.lua" run 2>/var/run/passwall/rule-update.error
 	local result=$?
-
-	if [ "$result" = 0 ]; then
-		(
-			flock -x 9 || exit 1
-
-			for backup in "$APP"/rules/.update.??????; do
-				[ -d "$backup" ] || continue
-				rm -rf -- "$backup" || exit 1
-			done
-		) 9>/var/lock/passwall.lock ||
-			logger -t passwall "历史规则备份清理失败"
-	else
-		lua "$APP/rule_update.lua" failed >/dev/null
-	fi
-
+	[ "$result" = 0 ] || lua "$APP/rule_update.lua" failed >/dev/null
 	return "$result"
 }
 if [ "$1" = start ]; then
 	# Both the worker and curl retain fd 8 until the task ends.
-	run_worker "$2" </dev/null >/dev/null 2>&1 &
+	run_worker </dev/null >/dev/null 2>&1 &
 	lua "$APP/rule_update.lua" status
-
-elif [ -n "$2" ]; then
-	run_worker "$2"
 else
 	run_worker
 fi

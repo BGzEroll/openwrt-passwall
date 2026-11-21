@@ -81,62 +81,68 @@ local function ports_ready(instance)
  return true
 end
 
--- ChinaDNS reads its configuration and domain files only at startup. Keep each instance's
--- inputs immutable so a failed replacement can restart the old instance.
+-- ChinaDNS reloads its configuration and lists only on restart. Compare against
+-- the files the current process actually loaded, before creating a replacement.
+local function chinadns_snapshot(instance, direct_dns)
+ local command = instance.command
+ local active = config_arg(command)
+ local source = (instance.data or {}).source_config or active
+ local text = assert(fs.readfile(source))
+ local lists = {}
+
+ local function render(folder)
+  local group, index = nil, 0
+  return (text:gsub('[^\r\n]+', function(line)
+   local option, value = line:match('^%s*([%w%-]+)%s+(.+)$')
+   if option == 'group' then group = value end
+   if direct_dns and direct_dns ~= '' and
+     (option == 'china-dns' or (option == 'group-upstream' and (group == 'vpslist' or group == 'directlist'))) then
+    return option .. ' ' .. direct_dns
+   end
+   if option == 'group-dnl' or option == 'gfwlist-file' then
+    index = index + 1
+    lists[index] = lists[index] or fs.readfile(value) or ''
+    return option .. ' ' .. folder .. '/list' .. index
+   end
+   return line
+  end))
+ end
+
+ local old_folder = active ~= source and active:match('^(.*)/config$')
+ if old_folder and fs.readfile(active) == render(old_folder) then
+  local same = true
+  for index, content in ipairs(lists) do
+   if fs.readfile(old_folder .. '/list' .. index) ~= content then
+    same = false
+    break
+   end
+  end
+  if same then return end
+ end
+
+ local folder = sys.exec('mktemp -d ' .. quote(directory .. '/dns.XXXXXX')):gsub('%s+$', '')
+ assert(folder ~= '', '无法创建 DNS 规则快照')
+ local config = folder .. '/config'
+ assert(fs.writefile(config, render(folder)))
+ for index, content in ipairs(lists) do
+  assert(fs.writefile(folder .. '/list' .. index, content))
+ end
+ for i, arg in ipairs(command) do
+  if arg == '-C' then command[i + 1] = config; break end
+ end
+ instance.data = {source_config=source}
+ return folder, old_folder or nil
+end
+
 local function dns_files(expected, direct_dns)
- local changed, created, obsolete = false, {}, {}
+ local changed, created, obsolete = {}, {}, {}
  for name, instance in pairs(expected) do
   if instance.command[3] == '/usr/bin/chinadns-ng' then
-   local source = (instance.data or {}).source_config or config_arg(instance.command)
-   local text = assert(fs.readfile(source))
-   if direct_dns and direct_dns ~= '' then
-    -- Refresh automatic upstreams in the candidate, preserving the old live snapshot.
-    local group
-    text = text:gsub('[^\r\n]+', function(line)
-     group = line:match('^%s*group%s+(%S+)') or group
-     local option = line:match('^%s*([%w%-]+)%s+')
-     if option == 'china-dns' or (option == 'group-upstream' and (group == 'vpslist' or group == 'directlist')) then
-      return option .. ' ' .. direct_dns
-     end
-     return line
-    end)
-   end
-   local files, content = {}, {}
-   for option, path in text:gmatch('([%w%-]+)%s+([^\r\n]+)') do
-    if option == 'group-dnl' or option == 'gfwlist-file' then
-     files[#files + 1] = path
-     content[path] = fs.readfile(path) or ''
-    end
-   end
-   local signature = text
-   for _, path in ipairs(files) do signature = signature .. '\0' .. path .. '\0' .. content[path] end
-   local folder = sys.exec('mktemp -d ' .. quote(directory .. '/dns.XXXXXX')):gsub('%s+$', '')
-   assert(folder ~= '', '无法创建 DNS 规则快照')
-   assert(fs.writefile(folder .. '/signature', signature))
-   signature = sys.exec('sha256sum ' .. quote(folder .. '/signature')):match('^(%x+)')
-   assert(signature, 'DNS 规则签名失败')
-   fs.unlink(folder .. '/signature')
-   if signature ~= (instance.data or {}).file_signature then
+   local folder, old_folder = chinadns_snapshot(instance, direct_dns)
+   if folder then
+    changed[name] = instance
     created[#created + 1] = folder
-    for i, path in ipairs(files) do
-     local target = folder .. '/list' .. i
-     assert(fs.writefile(target, content[path]))
-     text = text:gsub('([^\r\n]+)', function(line)
-      local option, value = line:match('^%s*([%w%-]+)%s+(.+)$')
-      if (option == 'group-dnl' or option == 'gfwlist-file') and value == path then return option .. ' ' .. target end
-      return line
-     end)
-    end
-    assert(fs.writefile(folder .. '/config', text))
-    local old = config_arg(instance.command)
-    if old ~= source then obsolete[#obsolete + 1] = old:match('^(.*)/config$') end
-    for i, arg in ipairs(instance.command) do
-     if arg == '-C' then instance.command[i + 1] = folder .. '/config'; break end
-    end
-    instance.data = {source_config=source, file_signature=signature}
-    changed = true
-   else
-    fs.rmdir(folder)
+    obsolete[#obsolete + 1] = old_folder
    end
   end
  end
@@ -166,13 +172,9 @@ end
 
 local function reload_files()
  local expected = plans(directory)
- local changed, created, obsolete = dns_files(expected, arg[3])
- if not changed then return end
+ local dns, created, obsolete = dns_files(expected, arg[3])
+ if not next(dns) then return end
  local previous = plans(directory)
- local dns = {}
- for name, instance in pairs(expected) do
-  if instance.command[3] == '/usr/bin/chinadns-ng' then dns[name] = instance end
- end
  local ok, err = pcall(function()
   call('set', {name='passwall', instances=expected})
   wait_ready(dns, 'ChinaDNS-NG 配置加载失败')
@@ -272,9 +274,11 @@ local ok, err = pcall(function()
   local command = {'/usr/share/passwall/process.sh', arg[3], arg[4]}
   for i = 5, #arg do command[#command + 1] = arg[i] end
   local count = 0
-  for _ in pairs(plans(directory)) do count = count + 1 end
+  for file in fs.dir(directory) do
+   if file:match('^process%d+%.json$') then count = count + 1 end
+  end
   local instance = {command=command, respawn={"3600", "5", "5"}, term_timeout=3,
-   env={V2RAY_LOCATION_ASSET='/usr/share/v2ray/', XRAY_LOCATION_ASSET='/usr/share/v2ray/'}}
+   env={XRAY_LOCATION_ASSET='/usr/share/v2ray/'}}
   assert(fs.writefile(directory .. '/process' .. (count + 1) .. '.json', json.stringify(instance)))
  elseif action == 'validate' then
   for _, instance in pairs(plans(directory)) do validate(instance) end
