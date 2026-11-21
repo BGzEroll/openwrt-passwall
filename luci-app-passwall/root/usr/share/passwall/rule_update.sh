@@ -1,5 +1,6 @@
 #!/bin/sh
-# Downloads have their own lock; only publication takes the lifecycle lock.
+# Downloads have their own lock. Publication and backup cleanup take the
+# lifecycle lock before changing files.
 APP=/usr/share/passwall
 mkdir -p /var/lock /var/run/passwall || exit 1
 exec 8>/var/lock/passwall-rule-update.lock
@@ -26,10 +27,30 @@ else
 	lua "$APP/rule_update.lua" prepare >/dev/null || exit 1
 fi
 export PASSWALL_RULE_UPDATE_LOCKED=1
+cleanup_backups() {
+	local backup
+	set -- "$APP"/rules/.update.??????
+	for backup in "$@"; do
+		[ -d "$backup" ] || continue
+		(
+			flock -x 9 || exit 1
+			for backup in "$@"; do
+				[ ! -d "$backup" ] || rm -rf -- "$backup" || exit 1
+			done
+		) 9>/var/lock/passwall.lock ||
+			logger -t passwall "历史规则备份清理失败"
+		break
+	done
+}
+
 run_worker() {
 	lua "$APP/rule_update.lua" run 2>/var/run/passwall/rule-update.error
 	local result=$?
-	[ "$result" = 0 ] || lua "$APP/rule_update.lua" failed >/dev/null
+	if [ "$result" = 0 ]; then
+		cleanup_backups
+	else
+		lua "$APP/rule_update.lua" failed >/dev/null
+	fi
 	return "$result"
 }
 if [ "$1" = start ]; then

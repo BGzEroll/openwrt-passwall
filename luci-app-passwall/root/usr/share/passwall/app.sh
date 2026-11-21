@@ -759,10 +759,7 @@ app_update_rules() {
 		echolog 规则 "规则应用失败，已保留旧规则文件"
 		return 1
 	fi
-	for backup in "$RULES_PATH"/.update.??????; do
-		[ -d "$backup" ] || continue
-		rm -rf -- "$backup" || echolog 规则 "无法清理旧规则备份：$backup"
-	done
+	rm -rf "$backup"
 	debuglog 规则 "规则文件发布完成"
 }
 
